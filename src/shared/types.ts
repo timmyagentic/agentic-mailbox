@@ -1,0 +1,83 @@
+export type AliasStatus = 'active' | 'disabled';
+export type RoutingMode = 'managed' | 'external';
+
+export type MailAlias = {
+  id: string;
+  localPart: string;
+  domain: string;
+  address: string;
+  label: string;
+  status: AliasStatus;
+  routingMode: RoutingMode;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+  lastReceivedAt: string | null;
+  messageCount: number;
+};
+
+export type AttachmentItem = {
+  id: string;
+  emailId: string;
+  aliasId: string;
+  aliasAddress: string;
+  emailSubject: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  createdAt: string;
+};
+
+export type EmailSummary = {
+  id: string;
+  aliasId: string;
+  aliasAddress: string;
+  aliasLabel: string;
+  fromAddress: string;
+  fromName: string;
+  toAddress: string;
+  subject: string;
+  preview: string;
+  receivedAt: string;
+  readAt: string | null;
+  rawSize: number;
+  attachmentCount: number;
+};
+
+export type EmailDetail = EmailSummary & {
+  messageId: string;
+  bodyText: string;
+  sentAt: string | null;
+  attachments: AttachmentItem[];
+};
+
+export type DashboardStats = {
+  aliasCount: number;
+  activeAliasCount: number;
+  emailCount: number;
+  unreadCount: number;
+  attachmentCount: number;
+  attachmentBytes: number;
+};
+
+export type BootstrapPayload = {
+  appName: string;
+  primaryDomain: string;
+  adminEmail: string;
+  stats: DashboardStats;
+  recentEmails: EmailSummary[];
+  recentAliases: MailAlias[];
+};
+
+export type SessionPayload = {
+  authenticated: boolean;
+  user: { email: string } | null;
+};
+
+export type ApiErrorPayload = {
+  error: {
+    code: string;
+    message: string;
+    requestId?: string;
+  };
+};

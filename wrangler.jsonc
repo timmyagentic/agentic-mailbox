@@ -1,0 +1,46 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "mailbox-vault",
+	"main": "src/worker/index.ts",
+	"compatibility_date": "2026-07-19",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": false,
+	"preview_urls": false,
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": true
+	},
+	"r2_buckets": [
+		{
+			"binding": "ATTACHMENTS",
+			"bucket_name": "mailbox-vault-attachments"
+		}
+	],
+	"vars": {
+		"APP_NAME": "Mailbox Vault",
+		"PRIMARY_DOMAIN": "emomo.net",
+		"ADMIN_EMAIL": "qianbi3956001@gmail.com",
+		"FORWARD_TO": "qianbi3956001@gmail.com"
+	},
+	"routes": [
+		{
+			"pattern": "mailbox.timmyagentic.com",
+			"custom_domain": true
+		}
+	],
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "mailbox-vault",
+			"database_id": "a8e55fd2-8b10-4fa0-abd5-9ce3fa29752e"
+		}
+	]
+}
