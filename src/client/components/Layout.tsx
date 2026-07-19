@@ -50,7 +50,7 @@ export function Layout({
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileOpen ? 'sidebar--open' : ''}`}>
+      <aside id="primary-sidebar" className={`sidebar ${mobileOpen ? 'sidebar--open' : ''}`}>
         <div className="brand-row">
           <div className="brand-mark" aria-hidden="true">
             <Archive size={19} />
@@ -87,6 +87,7 @@ export function Layout({
                 className={activeView === item.id ? 'primary-nav__item primary-nav__item--active' : 'primary-nav__item'}
                 type="button"
                 onClick={() => navigate(item.id)}
+                aria-current={activeView === item.id ? 'page' : undefined}
               >
                 <Icon size={18} />
                 <span>{item.label}</span>
@@ -112,7 +113,15 @@ export function Layout({
 
       <main className="workspace">
         <header className="mobile-header">
-          <button className="icon-button" type="button" onClick={() => setMobileOpen(true)} title="打开导航" aria-label="打开导航">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            title="打开导航"
+            aria-label="打开导航"
+            aria-controls="primary-sidebar"
+            aria-expanded={mobileOpen}
+          >
             <Menu size={20} />
           </button>
           <strong>{appName}</strong>
