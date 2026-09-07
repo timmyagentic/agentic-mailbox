@@ -1,5 +1,5 @@
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AttachmentItem,
   BootstrapPayload,
@@ -42,12 +42,18 @@ export default function App() {
   const [detail, setDetail] = useState<EmailDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
+  const emailRequest = useRef(0);
 
   const showError = useCallback((error: unknown) => {
+    const message = error instanceof Error ? error.message : '操作失败，请稍后重试。';
+    setLoginError(message);
     if (error instanceof ApiRequestError && error.status === 401) {
+      emailRequest.current += 1;
+      setDetail(null);
+      setDetailLoading(false);
       setAuthenticated(false);
     }
-    setToast({ type: 'error', message: error instanceof Error ? error.message : '操作失败，请稍后重试。' });
+    setToast({ type: 'error', message });
   }, []);
 
   const loadData = useCallback(async () => {
@@ -88,7 +94,13 @@ export default function App() {
     try {
       const session = await mailboxApi.login(password);
       setAuthenticated(session.authenticated);
-      await loadData();
+      if (session.authenticated) {
+        try {
+          await loadData();
+        } catch (error) {
+          showError(error);
+        }
+      }
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : '登录失败。');
     } finally {
@@ -99,13 +111,20 @@ export default function App() {
   const logout = async () => {
     try {
       await mailboxApi.logout();
-    } finally {
-      setAuthenticated(false);
-      setBootstrap(null);
-      setAliases([]);
-      setEmails([]);
-      setFiles([]);
+    } catch (error) {
+      showError(error);
+      return;
     }
+    setAuthenticated(false);
+    setBootstrap(null);
+    setAliases([]);
+    setEmails([]);
+    setFiles([]);
+    setLoginError('');
+    setToast(null);
+    emailRequest.current += 1;
+    setDetail(null);
+    setDetailLoading(false);
   };
 
   const refresh = async () => {
@@ -150,14 +169,29 @@ export default function App() {
     }
   };
 
+  const closeEmail = () => {
+    emailRequest.current += 1;
+    setDetail(null);
+    setDetailLoading(false);
+  };
+
+  const navigate = (view: ViewName) => {
+    closeEmail();
+    setActiveView(view);
+  };
+
   const openEmail = async (id: string) => {
+    const request = ++emailRequest.current;
+    setActiveView('inbox');
     setDetail(null);
     setDetailLoading(true);
     try {
       const { email } = await mailboxApi.email(id);
+      if (request !== emailRequest.current) return;
       setDetail(email);
       if (!email.readAt) {
         await mailboxApi.setEmailRead(id, true);
+        if (request !== emailRequest.current) return;
         const readAt = new Date().toISOString();
         setDetail((current) => (current?.id === id ? { ...current, readAt } : current));
         setEmails((current) => current.map((item) => (item.id === id ? { ...item, readAt } : item)));
@@ -168,10 +202,9 @@ export default function App() {
         );
       }
     } catch (error) {
-      showError(error);
-      setDetailLoading(false);
+      if (request === emailRequest.current) showError(error);
     } finally {
-      setDetailLoading(false);
+      if (request === emailRequest.current) setDetailLoading(false);
     }
   };
 
@@ -216,7 +249,7 @@ export default function App() {
         adminEmail={adminEmail}
         activeView={activeView}
         stats={stats}
-        onNavigate={setActiveView}
+        onNavigate={navigate}
         onLogout={() => void logout()}
       >
         {activeView === 'overview' ? (
@@ -224,7 +257,7 @@ export default function App() {
             stats={stats}
             emails={emails}
             aliases={aliases}
-            onNavigate={setActiveView}
+            onNavigate={navigate}
             onCreateAlias={openCreate}
             onOpenEmail={(id) => void openEmail(id)}
           />
@@ -236,7 +269,7 @@ export default function App() {
             detail={detail}
             detailLoading={detailLoading}
             onOpenEmail={(id) => void openEmail(id)}
-            onCloseEmail={() => setDetail(null)}
+            onCloseEmail={closeEmail}
             onToggleRead={(id, current) => void toggleRead(id, current)}
             onRefresh={() => void refresh()}
           />

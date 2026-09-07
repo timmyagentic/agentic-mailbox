@@ -28,7 +28,6 @@ export function apiError(error: unknown, requestId: string): Response {
     );
   }
 
-  console.error(JSON.stringify({ event: 'http_error', requestId, error: String(error) }));
   return json(
     {
       error: {

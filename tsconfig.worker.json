@@ -14,5 +14,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": ["src/worker", "src/shared", "tests"]
+  "include": ["src/worker", "src/shared", "tests"],
+  "exclude": ["tests/client"]
 }

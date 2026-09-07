@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import PostalMime from 'postal-mime';
 import { ingestEmail } from '../src/worker/mail';
 import type { AliasRow, EmailWorkerMessage, Env } from '../src/worker/types';
 
@@ -28,7 +29,7 @@ const RAW_EMAIL = [
 class FakeStatement {
   params: unknown[] = [];
 
-  constructor(readonly sql: string, private readonly alias: AliasRow | null) {}
+  constructor(readonly sql: string, private readonly alias: AliasRow | null, private readonly duplicate = false) {}
 
   bind(...params: unknown[]) {
     this.params = params;
@@ -40,20 +41,21 @@ class FakeStatement {
       return this.alias as T | null;
     }
     if (this.sql.includes('SELECT id FROM emails')) {
-      return null;
+      return this.duplicate ? { id: 'existing-email' } as T : null;
     }
     return null;
   }
 }
 
 class FakeDatabase {
+  duplicate = false;
   statements: FakeStatement[] = [];
   batches: FakeStatement[][] = [];
 
   constructor(readonly alias: AliasRow | null) {}
 
   prepare(sql: string) {
-    const statement = new FakeStatement(sql, this.alias);
+    const statement = new FakeStatement(sql, this.alias, this.duplicate);
     this.statements.push(statement);
     return statement;
   }
@@ -162,5 +164,103 @@ describe('inbound email ingestion', () => {
     expect(getRejectReason()).toBe('Mailbox is not registered or is disabled');
     expect(database.batches).toHaveLength(0);
     expect(bucket.objects.size).toBe(0);
+  });
+});
+
+
+function diagnostics() {
+  return [console.info, console.warn, console.error].flatMap((fn) => vi.mocked(fn).mock.calls).map(([line]) => JSON.parse(String(line)));
+}
+
+beforeEach(() => {
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+afterEach(() => vi.restoreAllMocks());
+
+const PRIVATE_ERROR = 'recipient=private@example.com code=654321 password=never-log-this';
+
+describe('email diagnostics and failure semantics', () => {
+  it('records successful ingestion and forwarding without MIME content', async () => {
+    const { env } = makeEnv(makeAlias());
+    await ingestEmail(makeMessage().message, env);
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingested', forwarding: 'succeeded', attachmentCount: 1, processingId: expect.any(String), durationMs: expect.any(Number) }));
+    const output = JSON.stringify(diagnostics());
+    for (const value of ['signup@emomo.net', 'noreply@github.com', 'Verify your account', '123456', 'code.txt', 'verification-123@example.com']) {
+      expect(output).not.toContain(value);
+    }
+  });
+
+  it('distinguishes domain and mailbox rejection without storing a message', async () => {
+    const { env, database } = makeEnv(null);
+    const { message } = makeMessage();
+    await ingestEmail({ ...message, to: 'private@other.example' } as EmailWorkerMessage, env);
+    await ingestEmail(makeMessage().message, env);
+    expect(diagnostics().map((row) => row.reason)).toEqual(['unmanaged_domain', 'unregistered_or_disabled']);
+    expect(database.batches).toHaveLength(0);
+    expect(JSON.stringify(diagnostics())).not.toContain('private@other.example');
+  });
+
+  it('records duplicate skips without storing or forwarding again', async () => {
+    const { env, database, bucket } = makeEnv(makeAlias());
+    database.duplicate = true;
+    const { message, forwarded } = makeMessage();
+    await ingestEmail(message, env);
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_duplicate', aliasId: 'alias-1' }));
+    expect(database.batches).toHaveLength(0);
+    expect(bucket.objects.size).toBe(0);
+    expect(forwarded).toHaveLength(0);
+  });
+
+  it('keeps stored mail accessible when forwarding fails and logs the partial failure safely', async () => {
+    const { env, database, bucket } = makeEnv(makeAlias());
+    const { message } = makeMessage();
+    message.forward = vi.fn().mockRejectedValue(new Error(PRIVATE_ERROR));
+    await ingestEmail(message, env);
+    expect(database.batches).toHaveLength(1);
+    expect(bucket.objects.size).toBe(1);
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'forward_failed', level: 'error' }));
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingested', forwarding: 'failed' }));
+    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
+  });
+
+  it('reports MIME failures by stage and prevents raw errors reaching platform logs', async () => {
+    vi.spyOn(PostalMime, 'parse').mockRejectedValue(new Error(PRIVATE_ERROR));
+    const { env, database } = makeEnv(makeAlias());
+    await expect(ingestEmail(makeMessage().message, env)).rejects.toThrow(/^Email processing failed \([0-9a-f-]+\)$/);
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'parse' }));
+    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
+    expect(database.batches).toHaveLength(0);
+  });
+
+  it('reports R2 failures without attempting database persistence', async () => {
+    const { env, database, bucket } = makeEnv(makeAlias());
+    vi.spyOn(bucket, 'put').mockRejectedValue(new Error(PRIVATE_ERROR));
+    await expect(ingestEmail(makeMessage().message, env)).rejects.toThrow('Email processing failed');
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'attachments' }));
+    expect(database.batches).toHaveLength(0);
+    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
+  });
+
+  it('cleans uploaded objects on database failure and preserves failure for retry', async () => {
+    const { env, database, bucket } = makeEnv(makeAlias());
+    vi.spyOn(database, 'batch').mockRejectedValue(new Error(PRIVATE_ERROR));
+    const { message, forwarded } = makeMessage();
+    await expect(ingestEmail(message, env)).rejects.toThrow('Email processing failed');
+    expect(bucket.objects.size).toBe(0);
+    expect(forwarded).toHaveLength(0);
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'database' }));
+    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
+  });
+
+  it('records cleanup failures separately from the original database failure', async () => {
+    const { env, database, bucket } = makeEnv(makeAlias());
+    vi.spyOn(database, 'batch').mockRejectedValue(new Error(PRIVATE_ERROR));
+    vi.spyOn(bucket, 'delete').mockRejectedValue(new Error(PRIVATE_ERROR));
+    await expect(ingestEmail(makeMessage().message, env)).rejects.toThrow('Email processing failed');
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'attachment_cleanup_failed', attachmentCount: 1 }));
+    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'database' }));
+    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
   });
 });

@@ -100,6 +100,10 @@ After deployment, point the `emomo.net` Email Routing catch-all rule at the `mai
 - CSP, frame denial, MIME sniffing protection, referrer policy, and restricted browser permissions are set on every response.
 - Unknown aliases are rejected instead of becoming an open catch-all inbox.
 
+## Diagnostics
+
+See [Operational diagnostics](docs/diagnostics.md) for event fields, error IDs, log access, and privacy boundaries. Application logs use the existing Cloudflare Workers Logs configuration.
+
 ## Source references
 
 - [Cloudflare Email Worker handler](https://developers.cloudflare.com/email-service/api/route-emails/email-handler/)
