@@ -1,6 +1,7 @@
 import { handleApi } from './api';
 import { apiError, HttpError, withSecurityHeaders } from './http';
 import { ingestEmail } from './mail';
+import { elapsedMs, logEvent, requestMethod, requestRoute } from './logging';
 import type { EmailWorkerMessage, Env } from './types';
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -18,12 +19,27 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const requestId = request.headers.get('cf-ray') ?? crypto.randomUUID();
+    const requestId = crypto.randomUUID();
+    const started = performance.now();
+    let response: Response;
+    let code: string | undefined;
     try {
-      return withSecurityHeaders(await handleRequest(request, env));
+      response = await handleRequest(request, env);
     } catch (error) {
-      return withSecurityHeaders(apiError(error, requestId));
+      code = error instanceof HttpError ? error.code : 'internal_error';
+      response = apiError(error, requestId);
     }
+    const secured = withSecurityHeaders(response);
+    secured.headers.set('X-Request-Id', requestId);
+    const route = requestRoute(new URL(request.url).pathname);
+    // Static asset successes already have platform invocation logs.
+    if (route !== 'asset' || response.status >= 400) {
+      logEvent(response.status >= 500 ? 'error' : response.status >= 400 ? 'warn' : 'info', {
+        event: 'http_request', requestId, route, method: requestMethod(request.method),
+        status: response.status, code, durationMs: elapsedMs(started),
+      });
+    }
+    return secured;
   },
 
   async email(message: EmailWorkerMessage, env: Env): Promise<void> {

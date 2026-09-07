@@ -1,11 +1,14 @@
 import PostalMime, { type Attachment, type Mailbox } from 'postal-mime';
 import { buildPreview, normalizeAddress, safeFilename, truncateText } from '../shared/validation';
 import { getAliasForInbound } from './db';
+import { elapsedMs, logEvent, type IngestStage } from './logging';
 import type { AliasRow, EmailWorkerMessage, Env } from './types';
 
 const MAX_BODY_TEXT = 500_000;
 const MAX_BODY_HTML = 750_000;
 const MAX_ATTACHMENTS = 50;
+
+type IngestContext = { processingId: string; started: number; stage: IngestStage };
 
 type StoredAttachment = {
   id: string;
@@ -53,9 +56,13 @@ function safeIsoDate(value: string | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-async function removeUploaded(env: Env, stored: StoredAttachment[]): Promise<void> {
-  if (stored.length > 0) {
+async function removeUploaded(env: Env, stored: StoredAttachment[], context: IngestContext): Promise<void> {
+  if (stored.length === 0) return;
+  try {
     await env.ATTACHMENTS.delete(stored.map((attachment) => attachment.r2Key));
+  } catch {
+    // A cleanup failure must not hide the original storage failure.
+    logEvent('error', { event: 'attachment_cleanup_failed', processingId: context.processingId, attachmentCount: stored.length });
   }
 }
 
@@ -64,6 +71,7 @@ async function storeAttachments(
   alias: AliasRow,
   emailId: string,
   attachments: Attachment[],
+  context: IngestContext,
 ): Promise<StoredAttachment[]> {
   const stored: StoredAttachment[] = [];
 
@@ -92,32 +100,38 @@ async function storeAttachments(
     }
     return stored;
   } catch (error) {
-    await removeUploaded(env, stored);
+    await removeUploaded(env, stored, context);
     throw error;
   }
 }
 
-export async function ingestEmail(
+async function processEmail(
   message: EmailWorkerMessage,
   env: Env,
+  context: IngestContext,
 ): Promise<void> {
   const recipient = normalizeAddress(message.to);
   const primaryDomain = env.PRIMARY_DOMAIN.trim().toLowerCase();
   if (!recipient || !recipient.endsWith(`@${primaryDomain}`)) {
     message.setReject('Recipient domain is not managed by this mailbox');
+    logEvent('warn', { event: 'email_rejected', processingId: context.processingId, reason: 'unmanaged_domain', durationMs: elapsedMs(context.started) });
     return;
   }
 
+  context.stage = 'alias_lookup';
   const alias = await getAliasForInbound(env, recipient);
   if (!alias) {
     message.setReject('Mailbox is not registered or is disabled');
+    logEvent('warn', { event: 'email_rejected', processingId: context.processingId, reason: 'unregistered_or_disabled', durationMs: elapsedMs(context.started) });
     return;
   }
 
+  context.stage = 'parse';
   const raw = await new Response(message.raw).arrayBuffer();
   const parsed = await PostalMime.parse(raw, { attachmentEncoding: 'arraybuffer' });
   const messageId = truncateText(message.headers.get('message-id') ?? parsed.messageId ?? '', 500);
 
+  context.stage = 'deduplicate';
   if (messageId) {
     const duplicate = await env.DB.prepare(
       'SELECT id FROM emails WHERE alias_id = ?1 AND message_id = ?2 LIMIT 1',
@@ -125,6 +139,7 @@ export async function ingestEmail(
       .bind(alias.id, messageId)
       .first<{ id: string }>();
     if (duplicate) {
+      logEvent('info', { event: 'email_duplicate', processingId: context.processingId, aliasId: alias.id, durationMs: elapsedMs(context.started) });
       return;
     }
   }
@@ -136,7 +151,10 @@ export async function ingestEmail(
   const bodyHtml = truncateText(parsed.html ?? '', MAX_BODY_HTML);
   const preview = buildPreview(bodyText || bodyHtml.replace(/<[^>]+>/g, ' '));
   const sender = normalizeAddress(message.from) ?? truncateText(message.from, 320);
-  const attachments = await storeAttachments(env, alias, emailId, parsed.attachments);
+  context.stage = 'attachments';
+  const attachments = await storeAttachments(env, alias, emailId, parsed.attachments, context);
+
+  context.stage = 'database';
 
   const statements = [
     env.DB.prepare(
@@ -191,27 +209,41 @@ export async function ingestEmail(
   try {
     await env.DB.batch(statements);
   } catch (error) {
-    await removeUploaded(env, attachments);
+    await removeUploaded(env, attachments, context);
     throw error;
   }
 
+  context.stage = 'forward';
+  let forwarding: 'disabled' | 'succeeded' | 'failed' = 'disabled';
   if (env.FORWARD_TO) {
     const traceHeaders = new Headers({
       'X-Mailbox-Vault-Original-To': recipient,
       'X-Mailbox-Vault-Email-Id': emailId,
     });
-    await message.forward(env.FORWARD_TO, traceHeaders).catch((error) => {
-      console.error(JSON.stringify({ event: 'forward_failed', emailId, error: String(error) }));
-    });
+    try {
+      await message.forward(env.FORWARD_TO, traceHeaders);
+      forwarding = 'succeeded';
+    } catch {
+      forwarding = 'failed';
+      logEvent('error', { event: 'forward_failed', processingId: context.processingId, emailId });
+    }
   }
 
-  console.log(
-    JSON.stringify({
-      event: 'email_ingested',
-      emailId,
-      aliasId: alias.id,
-      attachmentCount: attachments.length,
-      rawSize: message.rawSize,
-    }),
-  );
+  logEvent('info', {
+    event: 'email_ingested', processingId: context.processingId,
+    emailId, aliasId: alias.id, attachmentCount: attachments.length,
+    rawSize: message.rawSize, forwarding, durationMs: elapsedMs(context.started),
+  });
+}
+
+export async function ingestEmail(message: EmailWorkerMessage, env: Env): Promise<void> {
+  const context: IngestContext = { processingId: crypto.randomUUID(), started: performance.now(), stage: 'recipient' };
+  try {
+    await processEmail(message, env, context);
+  } catch {
+    logEvent('error', { event: 'email_ingest_failed', processingId: context.processingId, stage: context.stage, durationMs: elapsedMs(context.started) });
+    // Keep failure/retry semantics without exposing MIME content, addresses or
+    // provider exception text in Cloudflare's automatic exception records.
+    throw new Error(`Email processing failed (${context.processingId})`);
+  }
 }
