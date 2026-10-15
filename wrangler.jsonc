@@ -28,7 +28,7 @@
 	},
 	"routes": [
 		{
-			"pattern": "mailbox.timmyagentic.com",
+			"pattern": "mailbox.timmyagentic.si",
 			"custom_domain": true
 		}
 	],
