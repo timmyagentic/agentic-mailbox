@@ -24,6 +24,7 @@
 	],
 	"vars": {
 		"APP_NAME": "Mailbox Vault",
+		"MAIL_OAUTH_ORIGIN": "https://mailbox.timmyagentic.si",
 		"PRIMARY_DOMAIN": "emomo.net",
 		"ADMIN_EMAIL": "qianbi3956001@gmail.com",
 		"FORWARD_TO": "qianbi3956001@gmail.com"
