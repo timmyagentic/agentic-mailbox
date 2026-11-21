@@ -19,7 +19,7 @@ const email: EmailDetail = {
 const bootstrap: BootstrapPayload = {
   appName: 'Mailbox Vault', primaryDomain: 'example.com', adminEmail: 'admin@example.com',
   stats: { aliasCount: 1, activeAliasCount: 1, emailCount: 1, unreadCount: 1, attachmentCount: 0, attachmentBytes: 0 },
-  recentEmails: [email], recentAliases: [],
+  recentEmails: [email], recentAliases: [], mailAccounts: [],
 };
 
 beforeEach(() => {
@@ -67,7 +67,7 @@ describe('mail reading and failure recovery', () => {
     await overview();
     fireEvent.click(screen.getByRole('button', { name: /查看全部/ }));
     vi.mocked(mailboxApi.bootstrap).mockRejectedValue(new ApiRequestError(401, 'authentication_required', '请先登录管理端。'));
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    fireEvent.click(screen.getByRole('button', { name: '一键刷新' }));
     await screen.findByRole('heading', { name: '管理员登录' });
     expect(screen.getByRole('alert').textContent).toContain('请先登录管理端');
   });
@@ -82,7 +82,7 @@ describe('mail reading and failure recovery', () => {
     await screen.findByRole('heading', { name: '邮箱概览' });
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('数据加载失败'));
     fireEvent.click(screen.getByRole('button', { name: /查看全部/ }));
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    fireEvent.click(screen.getByRole('button', { name: '一键刷新' }));
     await screen.findByRole('button', { name: /测试邮件/ });
   });
 });
@@ -94,4 +94,48 @@ it('keeps the session visible and reports failed logout instead of pretending it
   await screen.findByRole('status');
   expect(screen.getByRole('heading', { name: '邮箱概览' })).toBeTruthy();
   expect(screen.getByRole('status').textContent).toContain('网络连接失败');
+});
+
+it('refreshes both connected mailboxes in one click and displays an individual failure', async () => {
+  const mailAccounts = [
+    { id: 'qq', provider: 'qq' as const, address: 'owner@qq.com', lastSyncAt: null },
+    { id: '163', provider: 'netease163' as const, address: 'owner@163.com', lastSyncAt: null },
+  ];
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts });
+  vi.mocked(mailboxApi.refreshMailAccount).mockImplementation(async (id) => ({
+    result: {
+      id, imported: id === 'qq' ? 1 : 0, oversized: 0, hasMore: false, lastSyncAt: null,
+      error: id === '163' ? '邮箱授权失败' : undefined,
+    },
+  }));
+
+  await overview();
+  fireEvent.click(screen.getByRole('button', { name: /查看全部/ }));
+  vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [
+    email, { ...email, id: 'qq-synced', aliasId: 'qq', aliasAddress: 'owner@qq.com', subject: 'QQ 新邮件' },
+  ] });
+  fireEvent.click(screen.getByRole('button', { name: '一键刷新' }));
+  await screen.findByRole('button', { name: /QQ 新邮件/ });
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledTimes(2);
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('qq');
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('163');
+  expect(screen.getByText('邮箱授权失败')).toBeTruthy();
+
+  vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [
+    { ...email, id: 'older-163', aliasId: '163', aliasAddress: 'owner@163.com', subject: '163 历史邮件' },
+  ] });
+  fireEvent.change(screen.getByLabelText('筛选邮箱'), { target: { value: '163' } });
+  await screen.findByRole('button', { name: /163 历史邮件/ });
+  expect(mailboxApi.emails).toHaveBeenCalledWith(expect.objectContaining({ aliasId: '163' }));
+  expect(screen.queryByRole('button', { name: /QQ 新邮件/ })).toBeNull();
+});
+
+it('can sign in with a device certificate without entering a password', async () => {
+  vi.mocked(mailboxApi.session).mockResolvedValue({ authenticated: false, user: null });
+  vi.mocked(mailboxApi.loginWithCertificate).mockResolvedValue({ authenticated: true, user: { email: 'admin@example.com' } });
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: '使用设备证书登录' }));
+  await screen.findByRole('heading', { name: '邮箱概览' });
+  expect(mailboxApi.loginWithCertificate).toHaveBeenCalledTimes(1);
+  expect(mailboxApi.login).not.toHaveBeenCalled();
 });

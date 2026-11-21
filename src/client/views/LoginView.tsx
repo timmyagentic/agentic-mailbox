@@ -1,5 +1,6 @@
 import {
   Archive,
+  BadgeCheck,
   Eye,
   EyeOff,
   Keyboard,
@@ -14,9 +15,10 @@ type LoginViewProps = {
   error: string;
   busy: boolean;
   onLogin: (password: string) => Promise<void>;
+  onCertificateLogin: () => Promise<void>;
 };
 
-export function LoginView({ error, busy, onLogin }: LoginViewProps) {
+export function LoginView({ error, busy, onLogin, onCertificateLogin }: LoginViewProps) {
   const [password, setPassword] = useState('');
   const [visible, setVisible] = useState(false);
 
@@ -86,7 +88,7 @@ export function LoginView({ error, busy, onLogin }: LoginViewProps) {
         <div className="login-panel">
           <p className="login-kicker" lang="en">PRIVATE ADMIN WORKSPACE</p>
           <h2 id="login-title">管理员登录</h2>
-          <p className="login-intro">输入管理员密码以进入管理端</p>
+          <p className="login-intro">使用管理员密码或设备证书登录</p>
 
           <form onSubmit={submit} className="login-form" aria-busy={busy}>
             <label htmlFor="admin-password">管理员密码</label>
@@ -115,11 +117,20 @@ export function LoginView({ error, busy, onLogin }: LoginViewProps) {
                 {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
               </button>
             </div>
-            {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
             <button className="button button--primary button--full" type="submit" disabled={busy || !password}>
               {busy ? '登录中...' : '进入管理端'}
             </button>
           </form>
+          <button
+            className="button button--secondary button--full login-certificate"
+            type="button"
+            onClick={() => void onCertificateLogin()}
+            disabled={busy}
+          >
+            <BadgeCheck size={17} aria-hidden="true" />
+            使用设备证书登录
+          </button>
+          {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
 
           <p className="login-submit-hint">
             <Keyboard size={17} aria-hidden="true" />

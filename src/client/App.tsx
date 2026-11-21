@@ -7,6 +7,7 @@ import type {
   EmailDetail,
   EmailSummary,
   MailAlias,
+  MailRefreshResult,
 } from '../shared/types';
 import { ApiRequestError, mailboxApi } from './api';
 import { Layout, type ViewName } from './components/Layout';
@@ -38,6 +39,8 @@ export default function App() {
   const [emails, setEmails] = useState<EmailSummary[]>([]);
   const [files, setFiles] = useState<AttachmentItem[]>([]);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResults, setRefreshResults] = useState<MailRefreshResult[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [detail, setDetail] = useState<EmailDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -88,11 +91,13 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const login = async (password: string) => {
+  const login = async (password?: string) => {
     setLoginBusy(true);
     setLoginError('');
     try {
-      const session = await mailboxApi.login(password);
+      const session = password === undefined
+        ? await mailboxApi.loginWithCertificate()
+        : await mailboxApi.login(password);
       setAuthenticated(session.authenticated);
       if (session.authenticated) {
         try {
@@ -119,6 +124,7 @@ export default function App() {
     setBootstrap(null);
     setAliases([]);
     setEmails([]);
+    setRefreshResults([]);
     setFiles([]);
     setLoginError('');
     setToast(null);
@@ -128,14 +134,49 @@ export default function App() {
   };
 
   const refresh = async () => {
-    setBusy(true);
+    setRefreshing(true);
     try {
+      const accounts = bootstrap?.mailAccounts ?? [];
+      const results = await Promise.all(accounts.map(async (account): Promise<MailRefreshResult> => {
+        try {
+          return (await mailboxApi.refreshMailAccount(account.id)).result;
+        } catch (error) {
+          return {
+            id: account.id, imported: 0, oversized: 0, hasMore: false, lastSyncAt: account.lastSyncAt,
+            error: error instanceof Error ? error.message : '邮箱同步失败。',
+          };
+        }
+      }));
+      setRefreshResults(results);
       await loadData();
-      setToast({ type: 'success', message: '数据已刷新。' });
+
+      const imported = results.reduce((total, result) => total + result.imported, 0);
+      const errors = results.filter((result) => result.error).length;
+      const receipt = imported > 0 ? `同步了 ${imported} 封邮件` : '收件箱已刷新';
+      setToast({
+        type: errors ? 'error' : 'success',
+        message: errors ? `${receipt}，${errors} 个邮箱同步失败。查看该账号的状态。` : `${receipt}。`,
+      });
     } catch (error) {
       showError(error);
     } finally {
-      setBusy(false);
+      setRefreshing(false);
+    }
+  };
+
+  const saveMailAccount = async (input: { email: string; authorizationCode: string }) => {
+    try {
+      const { account } = await mailboxApi.saveMailAccount(input);
+      setBootstrap((current) => current ? {
+        ...current,
+        mailAccounts: [...(current.mailAccounts ?? []).filter(({ id }) => id !== account.id), account]
+          .sort((a, b) => a.address.localeCompare(b.address)),
+      } : current);
+      setRefreshResults((current) => current.filter(({ id }) => id !== account.id));
+      setToast({ type: 'success', message: '邮箱已保存。点击「一键刷新」同步邮件。' });
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) showError(error);
+      throw error;
     }
   };
 
@@ -228,13 +269,15 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return <LoginView error={loginError} busy={loginBusy} onLogin={login} />;
+    return <LoginView error={loginError} busy={loginBusy} onLogin={login} onCertificateLogin={() => login()} />;
   }
 
   const stats = bootstrap?.stats ?? EMPTY_STATS;
   const appName = bootstrap?.appName ?? 'Mailbox Vault';
   const primaryDomain = bootstrap?.primaryDomain ?? 'emomo.net';
   const adminEmail = bootstrap?.adminEmail ?? '';
+  const accounts = bootstrap?.mailAccounts ?? [];
+  const mailSources = [...aliases, ...accounts];
 
   const openCreate = () => {
     setActiveView('aliases');
@@ -265,7 +308,11 @@ export default function App() {
         {activeView === 'inbox' ? (
           <InboxView
             emails={emails}
-            aliases={aliases}
+            sources={mailSources}
+            accounts={accounts}
+            refreshResults={refreshResults}
+            refreshing={refreshing}
+            onSaveAccount={saveMailAccount}
             detail={detail}
             detailLoading={detailLoading}
             onOpenEmail={(id) => void openEmail(id)}
@@ -286,7 +333,7 @@ export default function App() {
             onToggle={toggleAlias}
           />
         ) : null}
-        {activeView === 'files' ? <FilesView files={files} aliases={aliases} /> : null}
+        {activeView === 'files' ? <FilesView files={files} sources={mailSources} /> : null}
       </Layout>
 
       {toast ? (

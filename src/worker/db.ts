@@ -40,6 +40,8 @@ const ALIAS_SELECT = `
          created_at, updated_at, last_received_at, message_count
   FROM aliases`;
 
+const notImapAccount = 'NOT EXISTS (SELECT 1 FROM imap_accounts c WHERE c.id = aliases.id)';
+
 const EMAIL_SELECT = `
   SELECT e.id, e.alias_id, a.address AS alias_address, a.label AS alias_label,
          e.message_id, e.from_address, e.from_name, e.to_address, e.subject,
@@ -185,7 +187,7 @@ export async function createAlias(env: Env, input: CreateAliasInput): Promise<Ma
 }
 
 export async function updateAlias(env: Env, id: string, input: UpdateAliasInput): Promise<MailAlias> {
-  const existing = await env.DB.prepare(`${ALIAS_SELECT} WHERE id = ?1`).bind(id).first<AliasRow>();
+  const existing = await env.DB.prepare(`${ALIAS_SELECT} WHERE id = ?1 AND ${notImapAccount}`).bind(id).first<AliasRow>();
   if (!existing) {
     throw new HttpError(404, 'alias_not_found', '邮箱不存在。');
   }
@@ -211,7 +213,7 @@ export async function listAliases(env: Env, query = '', limit = 100): Promise<Ma
   const normalizedQuery = query.trim().slice(0, 100);
   const rows = await env.DB.prepare(
     `${ALIAS_SELECT}
-     WHERE (?1 = '' OR address LIKE ?2 OR label LIKE ?2 OR note LIKE ?2)
+     WHERE ${notImapAccount} AND (?1 = '' OR address LIKE ?2 OR label LIKE ?2 OR note LIKE ?2)
      ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
               COALESCE(last_received_at, created_at) DESC
      LIMIT ?3`,
@@ -302,8 +304,8 @@ async function count(db: D1Database, sql: string): Promise<number> {
 export async function getStats(env: Env): Promise<DashboardStats> {
   const [aliasCount, activeAliasCount, emailCount, unreadCount, attachmentCount, attachmentBytes] =
     await Promise.all([
-      count(env.DB, 'SELECT COUNT(*) AS value FROM aliases'),
-      count(env.DB, "SELECT COUNT(*) AS value FROM aliases WHERE status = 'active'"),
+      count(env.DB, `SELECT COUNT(*) AS value FROM aliases WHERE ${notImapAccount}`),
+      count(env.DB, `SELECT COUNT(*) AS value FROM aliases WHERE status = 'active' AND ${notImapAccount}`),
       count(env.DB, 'SELECT COUNT(*) AS value FROM emails'),
       count(env.DB, 'SELECT COUNT(*) AS value FROM emails WHERE read_at IS NULL'),
       count(env.DB, 'SELECT COUNT(*) AS value FROM attachments'),

@@ -12,6 +12,16 @@ describe('signed admin sessions', () => {
     expect(session?.email).toBe(email);
   });
 
+  it('uses a distinct session version for device certificates', async () => {
+    const certificateFingerprint = 'ab'.repeat(32);
+    const deviceToken = await createSessionToken(email, secret, now, certificateFingerprint);
+    expect(await verifySessionToken(deviceToken, email, secret, now)).toMatchObject({
+      version: 2, certificateFingerprint,
+    });
+    const passwordToken = await createSessionToken(email, secret, now);
+    expect(await verifySessionToken(passwordToken, email, secret, now)).toMatchObject({ version: 1 });
+  });
+
   it('rejects tampering, wrong identities and expired sessions', async () => {
     const token = await createSessionToken(email, secret, now);
     expect(await verifySessionToken(`${token}x`, email, secret, now)).toBeNull();

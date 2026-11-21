@@ -7,7 +7,9 @@ export interface Env {
   ADMIN_EMAIL: string;
   FORWARD_TO?: string;
   ADMIN_PASSWORD: string;
+  ADMIN_CERT_FINGERPRINTS?: string;
   SESSION_SECRET: string;
+  MAIL_ACCOUNT_KEY?: string;
 }
 
 export type EmailWorkerMessage = ForwardableEmailMessage;

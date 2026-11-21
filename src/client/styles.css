@@ -2318,3 +2318,73 @@ textarea:focus-visible {
     backdrop-filter: none;
   }
 }
+
+.connected-mailboxes {
+  display: grid;
+  gap: 8px;
+}
+
+.connected-mailboxes__header,
+.connected-mailboxes__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.connected-mailboxes__header {
+  justify-content: space-between;
+}
+
+.connected-mailboxes__header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.connected-mailboxes__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.connected-mailboxes__list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.connected-mailboxes__list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.connected-mailboxes__identity strong {
+  overflow-wrap: anywhere;
+}
+
+.connected-mailboxes__status,
+.connected-mailboxes__empty {
+  font-size: 13px;
+  margin: 0;
+}
+
+.connected-mailboxes__status small {
+  display: block;
+}
+
+@media (max-width: 620px) {
+  .connected-mailboxes__list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .connected-mailboxes__status {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+}
+
+.login-certificate {
+  margin-top: 10px;
+}

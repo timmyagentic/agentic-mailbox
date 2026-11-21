@@ -1,12 +1,18 @@
 import { Download, Files, Inbox, Mail, MailOpen, RefreshCw, Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
-import type { EmailDetail, EmailSummary, MailAlias } from '../../shared/types';
+import { useEffect, useState } from 'react';
+import type { EmailDetail, EmailSummary, MailAccount, MailRefreshResult } from '../../shared/types';
 import { formatBytes, formatDate, formatLongDate, initials, senderLabel } from '../format';
 import { Modal } from '../components/Modal';
+import { ConnectedMailboxes } from './ConnectedMailboxes';
+import { mailboxApi } from '../api';
 
 type InboxViewProps = {
   emails: EmailSummary[];
-  aliases: MailAlias[];
+  sources: { id: string; address: string }[];
+  accounts: MailAccount[];
+  refreshResults: MailRefreshResult[];
+  refreshing: boolean;
+  onSaveAccount: (input: { email: string; authorizationCode: string }) => Promise<void>;
   detail: EmailDetail | null;
   detailLoading: boolean;
   onOpenEmail: (id: string) => void;
@@ -17,7 +23,11 @@ type InboxViewProps = {
 
 export function InboxView({
   emails,
-  aliases,
+  sources,
+  accounts,
+  refreshResults,
+  refreshing,
+  onSaveAccount,
   detail,
   detailLoading,
   onOpenEmail,
@@ -29,18 +39,36 @@ export function InboxView({
   const [aliasId, setAliasId] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
 
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return emails.filter((email) => {
-      if (aliasId && email.aliasId !== aliasId) return false;
-      if (unreadOnly && email.readAt) return false;
-      if (!normalized) return true;
-      return [email.subject, email.fromAddress, email.fromName, email.toAddress, email.preview]
-        .join(' ')
-        .toLowerCase()
-        .includes(normalized);
-    });
-  }, [aliasId, emails, query, unreadOnly]);
+  const [search, setSearch] = useState<{ key: string; emails: EmailSummary[]; error?: string } | null>(null);
+  const trimmedQuery = query.trim();
+  const filteredMode = Boolean(aliasId || trimmedQuery || unreadOnly);
+  const searchKey = JSON.stringify([aliasId, trimmedQuery, unreadOnly]);
+
+  useEffect(() => {
+    if (!filteredMode) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void mailboxApi.emails({ aliasId, query: trimmedQuery, unreadOnly, signal: controller.signal })
+        .then(({ emails: matches }) => {
+          if (!controller.signal.aborted) setSearch({ key: searchKey, emails: matches });
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setSearch({
+              key: searchKey, emails: [],
+              error: error instanceof Error ? error.message : '读取筛选结果失败。',
+            });
+          }
+        });
+    }, trimmedQuery ? 200 : 0);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [aliasId, trimmedQuery, unreadOnly, filteredMode, searchKey, emails]);
+
+  const matches = search?.key === searchKey ? search : null;
+  const filtered = filteredMode ? matches?.emails ?? [] : emails;
 
   return (
     <div className="page">
@@ -50,10 +78,15 @@ export function InboxView({
           <h1>收件箱</h1>
           <p>{emails.filter((email) => !email.readAt).length} 封未读邮件</p>
         </div>
-        <button className="icon-button icon-button--bordered" type="button" onClick={onRefresh} title="刷新" aria-label="刷新">
+        <button className="button button--primary" type="button" onClick={onRefresh} disabled={refreshing}>
           <RefreshCw size={17} />
+          {refreshing ? '正在刷新…' : '一键刷新'}
         </button>
       </header>
+
+      <ConnectedMailboxes
+        accounts={accounts} results={refreshResults} refreshing={refreshing} onSave={onSaveAccount}
+      />
 
       <div className="toolbar">
         <label className="search-field">
@@ -62,7 +95,7 @@ export function InboxView({
         </label>
         <select className="select-control" value={aliasId} onChange={(event) => setAliasId(event.target.value)} aria-label="筛选邮箱">
           <option value="">全部邮箱</option>
-          {aliases.map((alias) => (
+          {sources.map((alias) => (
             <option value={alias.id} key={alias.id}>{alias.address}</option>
           ))}
         </select>
@@ -81,7 +114,11 @@ export function InboxView({
           <span>收件邮箱</span>
           <span>时间</span>
         </div>
-        {filtered.length > 0 ? (
+        {filteredMode && !matches ? (
+          <div className="loading-state"><span className="spinner" />正在读取邮件</div>
+        ) : matches?.error && filteredMode ? (
+          <div className="empty-state" role="alert">{matches.error}</div>
+        ) : filtered.length > 0 ? (
           filtered.map((email) => (
             <button
               className={`email-row email-row--item ${email.readAt ? '' : 'email-row--unread'}`}

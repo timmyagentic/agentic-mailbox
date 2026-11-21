@@ -1,10 +1,12 @@
 import type { BootstrapPayload } from '../shared/types';
+import { listMailAccounts, refreshMailAccount, saveMailAccount } from './accounts';
 import {
   clearSessionCookie,
   createSessionToken,
   getSession,
   passwordsMatch,
   sessionCookie,
+  verifiedClientFingerprint,
 } from './auth';
 import {
   createAlias,
@@ -26,7 +28,7 @@ type UpdateAliasBody = { label?: string; note?: string; status?: 'active' | 'dis
 type UpdateEmailBody = { read?: boolean };
 
 async function requireSession(request: Request, env: Env): Promise<void> {
-  const session = await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET);
+  const session = await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS);
   if (!session.authenticated) {
     throw new HttpError(401, 'authentication_required', '请先登录管理端。');
   }
@@ -54,9 +56,39 @@ async function health(env: Env): Promise<Response> {
   }
 }
 
+async function startAdminSession(request: Request, env: Env, fingerprint?: string): Promise<Response> {
+  const token = await createSessionToken(env.ADMIN_EMAIL, env.SESSION_SECRET, Date.now(), fingerprint);
+  return json(
+    { authenticated: true, user: { email: env.ADMIN_EMAIL } },
+    200,
+    { 'Set-Cookie': sessionCookie(token, request.url) },
+  );
+}
+
+async function handleCertificateLogin(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'POST') {
+    throw new HttpError(405, 'method_not_allowed', '请求方法不支持。');
+  }
+  assertSameOrigin(request);
+  // JSON prevents ordinary cross-site form submissions from starting a certificate session.
+  await readJson<unknown>(request);
+
+  if (new URL(request.url).protocol !== 'https:') {
+    throw new HttpError(400, 'certificate_requires_https', '请通过已启用设备证书的 HTTPS 地址登录。');
+  }
+  if (!env.ADMIN_CERT_FINGERPRINTS?.trim()) {
+    throw new HttpError(503, 'certificate_login_unconfigured', '此站点尚未配置设备证书登录。');
+  }
+  const fingerprint = verifiedClientFingerprint(request, env.ADMIN_CERT_FINGERPRINTS);
+  if (!fingerprint) {
+    throw new HttpError(403, 'certificate_not_allowed', '未识别到可用的设备证书，请在浏览器中选择已登记的证书。');
+  }
+  return startAdminSession(request, env, fingerprint);
+}
+
 async function handleSession(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET') {
-    return json(await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET));
+    return json(await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS));
   }
 
   assertSameOrigin(request);
@@ -66,12 +98,7 @@ async function handleSession(request: Request, env: Env): Promise<Response> {
     if (!password || !(await passwordsMatch(password, env.ADMIN_PASSWORD))) {
       throw new HttpError(401, 'invalid_credentials', '密码不正确。');
     }
-    const token = await createSessionToken(env.ADMIN_EMAIL, env.SESSION_SECRET);
-    return json(
-      { authenticated: true, user: { email: env.ADMIN_EMAIL } },
-      200,
-      { 'Set-Cookie': sessionCookie(token, request.url) },
-    );
+    return startAdminSession(request, env);
   }
 
   if (request.method === 'DELETE') {
@@ -86,10 +113,11 @@ async function handleSession(request: Request, env: Env): Promise<Response> {
 }
 
 async function bootstrap(env: Env): Promise<Response> {
-  const [stats, recentEmails, recentAliases] = await Promise.all([
+  const [stats, recentEmails, recentAliases, mailAccounts] = await Promise.all([
     getStats(env),
     listEmails(env, { limit: 8 }),
     listAliases(env, '', 6),
+    listMailAccounts(env),
   ]);
   return json({
     appName: env.APP_NAME,
@@ -98,6 +126,7 @@ async function bootstrap(env: Env): Promise<Response> {
     stats,
     recentEmails,
     recentAliases,
+    mailAccounts,
   } satisfies BootstrapPayload);
 }
 
@@ -152,10 +181,26 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     return handleSession(request, env);
   }
 
+  if (pathname === '/api/session/certificate') {
+    return handleCertificateLogin(request, env);
+  }
+
   await requireSession(request, env);
 
   if (pathname === '/api/bootstrap' && request.method === 'GET') {
     return bootstrap(env);
+  }
+
+  if (pathname === '/api/mail-accounts' && request.method === 'POST') {
+    assertSameOrigin(request);
+    const body = await readJson<{ email?: unknown; authorizationCode?: unknown }>(request);
+    return json({ account: await saveMailAccount(env, body) });
+  }
+
+  const accountId = routeId(pathname, '/api/mail-accounts/', '/refresh');
+  if (accountId && request.method === 'POST') {
+    assertSameOrigin(request);
+    return json({ result: await refreshMailAccount(env, accountId) });
   }
 
   if (pathname === '/api/aliases') {

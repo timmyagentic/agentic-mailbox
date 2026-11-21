@@ -4,6 +4,8 @@ import type {
   EmailDetail,
   EmailSummary,
   MailAlias,
+  MailAccount,
+  MailRefreshResult,
   SessionPayload,
 } from '../shared/types';
 
@@ -63,6 +65,8 @@ export const mailboxApi = {
   session: () => api<SessionPayload>('/api/session'),
   login: (password: string) =>
     api<SessionPayload>('/api/session', { method: 'POST', body: JSON.stringify({ password }) }),
+  loginWithCertificate: () =>
+    api<SessionPayload>('/api/session/certificate', { method: 'POST', body: '{}' }),
   logout: () => api<SessionPayload>('/api/session', { method: 'DELETE' }),
   bootstrap: () => api<BootstrapPayload>('/api/bootstrap'),
   aliases: () => api<{ aliases: MailAlias[] }>('/api/aliases?limit=100'),
@@ -73,7 +77,17 @@ export const mailboxApi = {
       method: 'PATCH',
       body: JSON.stringify(input),
     }),
-  emails: () => api<{ emails: EmailSummary[] }>('/api/emails?limit=100'),
+  saveMailAccount: (input: { email: string; authorizationCode: string }) =>
+    api<{ account: MailAccount }>('/api/mail-accounts', { method: 'POST', body: JSON.stringify(input) }),
+  refreshMailAccount: (id: string) =>
+    api<{ result: MailRefreshResult }>(`/api/mail-accounts/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
+  emails: (filter: { aliasId?: string; query?: string; unreadOnly?: boolean; signal?: AbortSignal } = {}) => {
+    const params = new URLSearchParams({ limit: '100' });
+    if (filter.aliasId) params.set('aliasId', filter.aliasId);
+    if (filter.query) params.set('q', filter.query);
+    if (filter.unreadOnly) params.set('unread', '1');
+    return api<{ emails: EmailSummary[] }>(`/api/emails?${params}`, { signal: filter.signal });
+  },
   email: (id: string) => api<{ email: EmailDetail }>(`/api/emails/${encodeURIComponent(id)}`),
   setEmailRead: (id: string, read: boolean) =>
     api<{ ok: boolean }>(`/api/emails/${encodeURIComponent(id)}`, {

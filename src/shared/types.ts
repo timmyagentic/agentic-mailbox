@@ -60,6 +60,24 @@ export type DashboardStats = {
   attachmentBytes: number;
 };
 
+export type MailProvider = 'qq' | 'netease163';
+
+export type MailAccount = {
+  id: string;
+  provider: MailProvider;
+  address: string;
+  lastSyncAt: string | null;
+};
+
+export type MailRefreshResult = {
+  id: string;
+  imported: number;
+  oversized: number;
+  hasMore: boolean;
+  lastSyncAt: string | null;
+  error?: string;
+};
+
 export type BootstrapPayload = {
   appName: string;
   primaryDomain: string;
@@ -67,6 +85,7 @@ export type BootstrapPayload = {
   stats: DashboardStats;
   recentEmails: EmailSummary[];
   recentAliases: MailAlias[];
+  mailAccounts: MailAccount[];
 };
 
 export type SessionPayload = {

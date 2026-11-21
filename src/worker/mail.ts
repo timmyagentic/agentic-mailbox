@@ -2,7 +2,7 @@ import PostalMime, { type Attachment, type Mailbox } from 'postal-mime';
 import { buildPreview, normalizeAddress, safeFilename, truncateText } from '../shared/validation';
 import { getAliasForInbound } from './db';
 import { elapsedMs, logEvent, type IngestStage } from './logging';
-import type { AliasRow, EmailWorkerMessage, Env } from './types';
+import type { EmailWorkerMessage, Env } from './types';
 
 const MAX_BODY_TEXT = 500_000;
 const MAX_BODY_HTML = 750_000;
@@ -37,12 +37,12 @@ function mailboxName(from: unknown): string {
   return truncateText(String((from as Mailbox).name ?? ''), 180);
 }
 
-function selectedHeaders(message: EmailWorkerMessage): string {
+function selectedHeaders(headers: Headers): string {
   const keys = ['message-id', 'in-reply-to', 'references', 'date', 'reply-to'];
   return JSON.stringify(
     Object.fromEntries(
       keys
-        .map((key) => [key, message.headers.get(key)] as const)
+        .map((key) => [key, headers.get(key)] as const)
         .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
     ),
   );
@@ -68,7 +68,7 @@ async function removeUploaded(env: Env, stored: StoredAttachment[], context: Ing
 
 async function storeAttachments(
   env: Env,
-  alias: AliasRow,
+  aliasId: string,
   emailId: string,
   attachments: Attachment[],
   context: IngestContext,
@@ -81,7 +81,7 @@ async function storeAttachments(
       const filename = safeFilename(attachment.filename ?? undefined, `attachment-${index + 1}`);
       const content = attachmentBytes(attachment);
       const contentType = truncateText(attachment.mimeType || 'application/octet-stream', 180);
-      const r2Key = `aliases/${alias.id}/emails/${emailId}/${id}`;
+      const r2Key = `aliases/${aliasId}/emails/${emailId}/${id}`;
       await env.ATTACHMENTS.put(r2Key, content, {
         httpMetadata: {
           contentType,
@@ -102,6 +102,110 @@ async function storeAttachments(
   } catch (error) {
     await removeUploaded(env, stored, context);
     throw error;
+  }
+}
+
+type ParsedMail = Awaited<ReturnType<typeof PostalMime.parse>>;
+
+type MailToStore = {
+  parsed: ParsedMail;
+  messageId: string;
+  sender: string;
+  recipient: string;
+  receivedAt: string;
+  rawSize: number;
+  headersJson: string;
+  readAt?: string | null;
+  imapIdentity?: string;
+};
+
+async function hasStoredMail(env: Env, aliasId: string, messageId: string, imapIdentity?: string) {
+  if (imapIdentity) {
+    return env.DB.prepare(
+      "SELECT id FROM emails WHERE alias_id = ?1 AND (imap_identity = ?2 OR (message_id = ?3 AND message_id <> '')) LIMIT 1",
+    ).bind(aliasId, imapIdentity, messageId).first<{ id: string }>();
+  }
+
+  if (!messageId) return null;
+  return env.DB.prepare(
+    'SELECT id FROM emails WHERE alias_id = ?1 AND message_id = ?2 LIMIT 1',
+  ).bind(aliasId, messageId).first<{ id: string }>();
+}
+
+async function saveMail(env: Env, aliasId: string, mail: MailToStore, context: IngestContext) {
+  const { parsed, messageId, sender, recipient, receivedAt, rawSize, headersJson, readAt, imapIdentity } = mail;
+  const emailId = crypto.randomUUID();
+  const subject = truncateText(parsed.subject?.trim() || '(无主题)', 500);
+  const bodyText = truncateText(parsed.text ?? '', MAX_BODY_TEXT);
+  const bodyHtml = truncateText(parsed.html ?? '', MAX_BODY_HTML);
+  const preview = buildPreview(bodyText || bodyHtml.replace(/<[^>]+>/g, ' '));
+  context.stage = 'attachments';
+  const attachments = await storeAttachments(env, aliasId, emailId, parsed.attachments, context);
+
+  context.stage = 'database';
+  try {
+    const insertMail = env.DB.prepare(
+      `INSERT INTO emails (
+        id, alias_id, message_id, from_address, from_name, to_address, subject,
+        preview, body_text, body_html, received_at, sent_at, raw_size, read_at,
+        attachment_count, headers_json, imap_identity
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+    ).bind(
+      emailId, aliasId, messageId, sender, mailboxName(parsed.from), recipient, subject,
+      preview, bodyText, bodyHtml, receivedAt, safeIsoDate(parsed.date), rawSize,
+      readAt ?? null, attachments.length, headersJson, imapIdentity ?? null,
+    );
+    const insertAttachments = attachments.map((attachment) =>
+      env.DB.prepare(
+        `INSERT INTO attachments (
+          id, email_id, alias_id, filename, content_type, size, content_id,
+          disposition, r2_key, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+      ).bind(
+        attachment.id, emailId, aliasId, attachment.filename, attachment.contentType,
+        attachment.size, attachment.contentId, attachment.disposition, attachment.r2Key, receivedAt,
+      ),
+    );
+    const updatedAt = new Date().toISOString();
+    const updateAlias = env.DB.prepare(
+      `UPDATE aliases
+       SET last_received_at = COALESCE(MAX(last_received_at, ?1), ?1),
+           updated_at = ?2, message_count = message_count + 1
+       WHERE id = ?3`,
+    ).bind(receivedAt, updatedAt, aliasId);
+    await env.DB.batch([insertMail, ...insertAttachments, updateAlias]);
+  } catch (error) {
+    await removeUploaded(env, attachments, context);
+    throw error;
+  }
+
+  return { emailId, attachmentCount: attachments.length };
+}
+
+export async function storeImapMail(
+  env: Env,
+  mail: { accountId: string; address: string; identity: string; raw: Uint8Array; receivedAt: string; seen: boolean },
+): Promise<boolean> {
+  const context: IngestContext = { processingId: crypto.randomUUID(), started: performance.now(), stage: 'parse' };
+  try {
+    const parsed = await PostalMime.parse(mail.raw, { attachmentEncoding: 'arraybuffer' });
+    const messageId = truncateText(parsed.messageId ?? '', 500);
+    context.stage = 'deduplicate';
+    if (await hasStoredMail(env, mail.accountId, messageId, mail.identity)) return false;
+
+    const sender = parsed.from?.address ?? '';
+    const headersJson = JSON.stringify(Object.fromEntries(parsed.headers
+      .filter(({ key }) => ['message-id', 'in-reply-to', 'references', 'date', 'reply-to'].includes(key))
+      .map(({ key, value }) => [key, value])));
+    await saveMail(env, mail.accountId, {
+      parsed, messageId, sender: normalizeAddress(sender) ?? truncateText(sender, 320),
+      recipient: mail.address, receivedAt: mail.receivedAt, rawSize: mail.raw.byteLength, headersJson,
+      readAt: mail.seen ? mail.receivedAt : null, imapIdentity: mail.identity,
+    }, context);
+    return true;
+  } catch {
+    logEvent('error', { event: 'email_ingest_failed', processingId: context.processingId, stage: context.stage, durationMs: elapsedMs(context.started) });
+    throw new Error('Unable to store synchronized email');
   }
 }
 
@@ -132,86 +236,16 @@ async function processEmail(
   const messageId = truncateText(message.headers.get('message-id') ?? parsed.messageId ?? '', 500);
 
   context.stage = 'deduplicate';
-  if (messageId) {
-    const duplicate = await env.DB.prepare(
-      'SELECT id FROM emails WHERE alias_id = ?1 AND message_id = ?2 LIMIT 1',
-    )
-      .bind(alias.id, messageId)
-      .first<{ id: string }>();
-    if (duplicate) {
-      logEvent('info', { event: 'email_duplicate', processingId: context.processingId, aliasId: alias.id, durationMs: elapsedMs(context.started) });
-      return;
-    }
+  if (await hasStoredMail(env, alias.id, messageId)) {
+    logEvent('info', { event: 'email_duplicate', processingId: context.processingId, aliasId: alias.id, durationMs: elapsedMs(context.started) });
+    return;
   }
 
-  const emailId = crypto.randomUUID();
-  const receivedAt = new Date().toISOString();
-  const subject = truncateText(parsed.subject?.trim() || '(无主题)', 500);
-  const bodyText = truncateText(parsed.text ?? '', MAX_BODY_TEXT);
-  const bodyHtml = truncateText(parsed.html ?? '', MAX_BODY_HTML);
-  const preview = buildPreview(bodyText || bodyHtml.replace(/<[^>]+>/g, ' '));
-  const sender = normalizeAddress(message.from) ?? truncateText(message.from, 320);
-  context.stage = 'attachments';
-  const attachments = await storeAttachments(env, alias, emailId, parsed.attachments, context);
-
-  context.stage = 'database';
-
-  const statements = [
-    env.DB.prepare(
-      `INSERT INTO emails (
-        id, alias_id, message_id, from_address, from_name, to_address, subject,
-        preview, body_text, body_html, received_at, sent_at, raw_size, read_at,
-        attachment_count, headers_json
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, ?14, ?15)`,
-    ).bind(
-      emailId,
-      alias.id,
-      messageId,
-      sender,
-      mailboxName(parsed.from),
-      recipient,
-      subject,
-      preview,
-      bodyText,
-      bodyHtml,
-      receivedAt,
-      safeIsoDate(parsed.date),
-      message.rawSize,
-      attachments.length,
-      selectedHeaders(message),
-    ),
-    ...attachments.map((attachment) =>
-      env.DB.prepare(
-        `INSERT INTO attachments (
-          id, email_id, alias_id, filename, content_type, size, content_id,
-          disposition, r2_key, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
-      ).bind(
-        attachment.id,
-        emailId,
-        alias.id,
-        attachment.filename,
-        attachment.contentType,
-        attachment.size,
-        attachment.contentId,
-        attachment.disposition,
-        attachment.r2Key,
-        receivedAt,
-      ),
-    ),
-    env.DB.prepare(
-      `UPDATE aliases
-       SET last_received_at = ?1, updated_at = ?1, message_count = message_count + 1
-       WHERE id = ?2`,
-    ).bind(receivedAt, alias.id),
-  ];
-
-  try {
-    await env.DB.batch(statements);
-  } catch (error) {
-    await removeUploaded(env, attachments, context);
-    throw error;
-  }
+  const { emailId, attachmentCount } = await saveMail(env, alias.id, {
+    parsed, messageId, recipient, receivedAt: new Date().toISOString(),
+    sender: normalizeAddress(message.from) ?? truncateText(message.from, 320),
+    rawSize: message.rawSize, headersJson: selectedHeaders(message.headers),
+  }, context);
 
   context.stage = 'forward';
   let forwarding: 'disabled' | 'succeeded' | 'failed' = 'disabled';
@@ -231,7 +265,7 @@ async function processEmail(
 
   logEvent('info', {
     event: 'email_ingested', processingId: context.processingId,
-    emailId, aliasId: alias.id, attachmentCount: attachments.length,
+    emailId, aliasId: alias.id, attachmentCount,
     rawSize: message.rawSize, forwarding, durationMs: elapsedMs(context.started),
   });
 }

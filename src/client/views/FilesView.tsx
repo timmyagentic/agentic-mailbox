@@ -1,14 +1,14 @@
 import { Download, File, Files, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { AttachmentItem, MailAlias } from '../../shared/types';
+import type { AttachmentItem } from '../../shared/types';
 import { formatBytes, formatDate } from '../format';
 
 type FilesViewProps = {
   files: AttachmentItem[];
-  aliases: MailAlias[];
+  sources: { id: string; address: string }[];
 };
 
-export function FilesView({ files, aliases }: FilesViewProps) {
+export function FilesView({ files, sources }: FilesViewProps) {
   const [query, setQuery] = useState('');
   const [aliasId, setAliasId] = useState('');
 
@@ -41,7 +41,7 @@ export function FilesView({ files, aliases }: FilesViewProps) {
         </label>
         <select className="select-control" value={aliasId} onChange={(event) => setAliasId(event.target.value)} aria-label="筛选邮箱">
           <option value="">全部邮箱</option>
-          {aliases.map((alias) => <option value={alias.id} key={alias.id}>{alias.address}</option>)}
+          {sources.map((alias) => <option value={alias.id} key={alias.id}>{alias.address}</option>)}
         </select>
       </div>
 
