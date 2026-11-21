@@ -2,6 +2,7 @@ import PostalMime, { type Attachment, type Mailbox } from 'postal-mime';
 import { buildPreview, normalizeAddress, safeFilename, truncateText } from '../shared/validation';
 import { getAliasForInbound } from './db';
 import { elapsedMs, logEvent, type IngestStage } from './logging';
+import { getThreadKey, mailHeaders, messageIds } from './thread-keys';
 import type { EmailWorkerMessage, Env } from './types';
 
 const MAX_BODY_TEXT = 500_000;
@@ -38,7 +39,7 @@ function mailboxName(from: unknown): string {
 }
 
 function selectedHeaders(headers: Headers): string {
-  const keys = ['message-id', 'in-reply-to', 'references', 'date', 'reply-to'];
+  const keys = ['message-id', 'in-reply-to', 'references', 'date', 'reply-to', 'cc', 'from'];
   return JSON.stringify(
     Object.fromEntries(
       keys
@@ -122,19 +123,27 @@ type MailToStore = {
 async function hasStoredMail(env: Env, aliasId: string, messageId: string, imapIdentity?: string) {
   if (imapIdentity) {
     return env.DB.prepare(
-      "SELECT id FROM emails WHERE alias_id = ?1 AND (imap_identity = ?2 OR (message_id = ?3 AND message_id <> '')) LIMIT 1",
+      "SELECT id FROM emails WHERE alias_id = ?1 AND outgoing = 0 AND (imap_identity = ?2 OR (message_id = ?3 AND message_id <> '')) LIMIT 1",
     ).bind(aliasId, imapIdentity, messageId).first<{ id: string }>();
   }
 
   if (!messageId) return null;
   return env.DB.prepare(
-    'SELECT id FROM emails WHERE alias_id = ?1 AND message_id = ?2 LIMIT 1',
+    'SELECT id FROM emails WHERE alias_id = ?1 AND message_id = ?2 AND outgoing = 0 LIMIT 1',
   ).bind(aliasId, messageId).first<{ id: string }>();
 }
 
 async function saveMail(env: Env, aliasId: string, mail: MailToStore, context: IngestContext) {
   const { parsed, messageId, sender, recipient, receivedAt, rawSize, headersJson, readAt, imapIdentity } = mail;
   const emailId = crypto.randomUUID();
+  const headers = mailHeaders(headersJson);
+  const replyTo = messageIds(headers['in-reply-to']).at(-1);
+  const parent = replyTo
+    ? await env.DB.prepare(
+      "SELECT thread_key FROM emails WHERE alias_id = ?1 AND message_id IN (?2, ?3) AND thread_key <> '' LIMIT 1",
+    ).bind(aliasId, `<${replyTo}>`, replyTo).first<{ thread_key: string }>()
+    : null;
+  const threadKey = parent?.thread_key ?? getThreadKey(emailId, messageId, headers);
   const subject = truncateText(parsed.subject?.trim() || '(无主题)', 500);
   const bodyText = truncateText(parsed.text ?? '', MAX_BODY_TEXT);
   const bodyHtml = truncateText(parsed.html ?? '', MAX_BODY_HTML);
@@ -148,12 +157,12 @@ async function saveMail(env: Env, aliasId: string, mail: MailToStore, context: I
       `INSERT INTO emails (
         id, alias_id, message_id, from_address, from_name, to_address, subject,
         preview, body_text, body_html, received_at, sent_at, raw_size, read_at,
-        attachment_count, headers_json, imap_identity
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+        attachment_count, headers_json, imap_identity, thread_key
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
     ).bind(
       emailId, aliasId, messageId, sender, mailboxName(parsed.from), recipient, subject,
       preview, bodyText, bodyHtml, receivedAt, safeIsoDate(parsed.date), rawSize,
-      readAt ?? null, attachments.length, headersJson, imapIdentity ?? null,
+      readAt ?? null, attachments.length, headersJson, imapIdentity ?? null, threadKey,
     );
     const insertAttachments = attachments.map((attachment) =>
       env.DB.prepare(
@@ -195,7 +204,7 @@ export async function storeImapMail(
 
     const sender = parsed.from?.address ?? '';
     const headersJson = JSON.stringify(Object.fromEntries(parsed.headers
-      .filter(({ key }) => ['message-id', 'in-reply-to', 'references', 'date', 'reply-to'].includes(key))
+      .filter(({ key }) => ['message-id', 'in-reply-to', 'references', 'date', 'reply-to', 'cc', 'from'].includes(key))
       .map(({ key, value }) => [key, value])));
     await saveMail(env, mail.accountId, {
       parsed, messageId, sender: normalizeAddress(sender) ?? truncateText(sender, 320),

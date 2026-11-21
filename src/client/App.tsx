@@ -1,21 +1,22 @@
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type {
   AttachmentItem,
   BootstrapPayload,
   DashboardStats,
-  EmailDetail,
   EmailSummary,
   MailAlias,
   MailRefreshResult,
 } from '../shared/types';
 import { ApiRequestError, mailboxApi } from './api';
-import { Layout, type ViewName } from './components/Layout';
+import type { ViewName } from './workbench/InboxWorkbench';
 import { AliasesView } from './views/AliasesView';
 import { FilesView } from './views/FilesView';
-import { InboxView } from './views/InboxView';
+import { ConnectedMailboxes } from './views/ConnectedMailboxes';
 import { LoginView } from './views/LoginView';
 import { OverviewView } from './views/OverviewView';
+
+const InboxWorkbench = lazy(() => import('./workbench/InboxWorkbench'));
 
 const EMPTY_STATS: DashboardStats = {
   aliasCount: 0,
@@ -33,7 +34,7 @@ export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [activeView, setActiveView] = useState<ViewName>('overview');
+  const [activeView, setActiveView] = useState<ViewName>('inbox');
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [aliases, setAliases] = useState<MailAlias[]>([]);
   const [emails, setEmails] = useState<EmailSummary[]>([]);
@@ -42,18 +43,14 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResults, setRefreshResults] = useState<MailRefreshResult[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detail, setDetail] = useState<EmailDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
-  const emailRequest = useRef(0);
 
   const showError = useCallback((error: unknown) => {
     const message = error instanceof Error ? error.message : '操作失败，请稍后重试。';
     setLoginError(message);
     if (error instanceof ApiRequestError && error.status === 401) {
-      emailRequest.current += 1;
-      setDetail(null);
-      setDetailLoading(false);
+      setSelectedId(null);
       setAuthenticated(false);
     }
     setToast({ type: 'error', message });
@@ -128,9 +125,7 @@ export default function App() {
     setFiles([]);
     setLoginError('');
     setToast(null);
-    emailRequest.current += 1;
-    setDetail(null);
-    setDetailLoading(false);
+    setSelectedId(null);
   };
 
   const refresh = async () => {
@@ -210,54 +205,14 @@ export default function App() {
     }
   };
 
-  const closeEmail = () => {
-    emailRequest.current += 1;
-    setDetail(null);
-    setDetailLoading(false);
-  };
-
   const navigate = (view: ViewName) => {
-    closeEmail();
+    if (view !== 'inbox') setSelectedId(null);
     setActiveView(view);
   };
 
-  const openEmail = async (id: string) => {
-    const request = ++emailRequest.current;
+  const openEmail = (id: string) => {
     setActiveView('inbox');
-    setDetail(null);
-    setDetailLoading(true);
-    try {
-      const { email } = await mailboxApi.email(id);
-      if (request !== emailRequest.current) return;
-      setDetail(email);
-      if (!email.readAt) {
-        await mailboxApi.setEmailRead(id, true);
-        if (request !== emailRequest.current) return;
-        const readAt = new Date().toISOString();
-        setDetail((current) => (current?.id === id ? { ...current, readAt } : current));
-        setEmails((current) => current.map((item) => (item.id === id ? { ...item, readAt } : item)));
-        setBootstrap((current) =>
-          current
-            ? { ...current, stats: { ...current.stats, unreadCount: Math.max(0, current.stats.unreadCount - 1) } }
-            : current,
-        );
-      }
-    } catch (error) {
-      if (request === emailRequest.current) showError(error);
-    } finally {
-      if (request === emailRequest.current) setDetailLoading(false);
-    }
-  };
-
-  const toggleRead = async (id: string, currentlyRead: boolean) => {
-    try {
-      await mailboxApi.setEmailRead(id, !currentlyRead);
-      const readAt = currentlyRead ? null : new Date().toISOString();
-      setDetail((current) => (current?.id === id ? { ...current, readAt } : current));
-      await loadData();
-    } catch (error) {
-      showError(error);
-    }
+    setSelectedId(id);
   };
 
   if (checkingSession) {
@@ -275,7 +230,6 @@ export default function App() {
   const stats = bootstrap?.stats ?? EMPTY_STATS;
   const appName = bootstrap?.appName ?? 'Mailbox Vault';
   const primaryDomain = bootstrap?.primaryDomain ?? 'emomo.net';
-  const adminEmail = bootstrap?.adminEmail ?? '';
   const accounts = bootstrap?.mailAccounts ?? [];
   const mailSources = [...aliases, ...accounts];
 
@@ -286,55 +240,53 @@ export default function App() {
 
   return (
     <>
-      <Layout
-        appName={appName}
-        primaryDomain={primaryDomain}
-        adminEmail={adminEmail}
-        activeView={activeView}
-        stats={stats}
-        onNavigate={navigate}
-        onLogout={() => void logout()}
-      >
-        {activeView === 'overview' ? (
-          <OverviewView
-            stats={stats}
-            emails={emails}
-            aliases={aliases}
-            onNavigate={navigate}
-            onCreateAlias={openCreate}
-            onOpenEmail={(id) => void openEmail(id)}
-          />
-        ) : null}
-        {activeView === 'inbox' ? (
-          <InboxView
-            emails={emails}
-            sources={mailSources}
-            accounts={accounts}
-            refreshResults={refreshResults}
-            refreshing={refreshing}
-            onSaveAccount={saveMailAccount}
-            detail={detail}
-            detailLoading={detailLoading}
-            onOpenEmail={(id) => void openEmail(id)}
-            onCloseEmail={closeEmail}
-            onToggleRead={(id, current) => void toggleRead(id, current)}
-            onRefresh={() => void refresh()}
-          />
-        ) : null}
-        {activeView === 'aliases' ? (
-          <AliasesView
-            aliases={aliases}
-            primaryDomain={primaryDomain}
-            createOpen={createOpen}
-            busy={busy}
-            onOpenCreate={() => setCreateOpen(true)}
-            onCloseCreate={() => setCreateOpen(false)}
-            onCreate={createAlias}
-            onToggle={toggleAlias}
-          />
-        ) : null}
-        {activeView === 'files' ? <FilesView files={files} sources={mailSources} /> : null}
-      </Layout>
+      <Suspense fallback={<main className="boot-screen"><div className="brand-loader"><span className="spinner" />正在加载邮箱</div></main>}>
+        <InboxWorkbench
+          appName={appName}
+          primaryDomain={primaryDomain}
+          activeView={activeView}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          aliases={aliases}
+          accounts={accounts}
+          revision={emails}
+          unread={stats.unreadCount}
+          refreshing={refreshing}
+          onNavigate={navigate}
+          onLogout={() => void logout()}
+          onReload={loadData}
+          onRefresh={refresh}
+          onError={showError}
+          onNotice={(message) => setToast({ type: 'success', message })}
+        >
+          {activeView === 'overview' ? (
+            <OverviewView
+              stats={stats}
+              emails={emails}
+              aliases={aliases}
+              onNavigate={navigate}
+              onCreateAlias={openCreate}
+              onOpenEmail={openEmail}
+            />
+          ) : null}
+          {activeView === 'aliases' ? (
+            <div className="page">
+              <ConnectedMailboxes accounts={accounts} results={refreshResults} refreshing={refreshing} onSave={saveMailAccount} />
+              <AliasesView
+                aliases={aliases}
+                primaryDomain={primaryDomain}
+                createOpen={createOpen}
+                busy={busy}
+                onOpenCreate={() => setCreateOpen(true)}
+                onCloseCreate={() => setCreateOpen(false)}
+                onCreate={createAlias}
+                onToggle={toggleAlias}
+              />
+            </div>
+          ) : null}
+          {activeView === 'files' ? <FilesView files={files} sources={mailSources} /> : null}
+        </InboxWorkbench>
+      </Suspense>
 
       {toast ? (
         <div className={`toast toast--${toast.type}`} role="status">

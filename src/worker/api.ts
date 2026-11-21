@@ -1,4 +1,4 @@
-import type { BootstrapPayload } from '../shared/types';
+import type { BootstrapPayload, DraftInput } from '../shared/types';
 import { listMailAccounts, refreshMailAccount, saveMailAccount } from './accounts';
 import {
   clearSessionCookie,
@@ -12,6 +12,10 @@ import {
   createAlias,
   getAttachmentRow,
   getEmail,
+  getConversation,
+  listConversations,
+  markConversationRead,
+  updateMailPlacement,
   getStats,
   listAliases,
   listEmails,
@@ -19,6 +23,9 @@ import {
   setEmailRead,
   updateAlias,
 } from './db';
+import {
+  discardDraft, discardDraftFile, generateDraftText, getDraft, listDrafts, saveDraft, sendDraft, uploadDraftFile,
+} from './drafts';
 import { assertSameOrigin, HttpError, json, parseLimit, readJson } from './http';
 import type { Env } from './types';
 
@@ -221,6 +228,69 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     return json({ alias: await updateAlias(env, aliasId, await readJson<UpdateAliasBody>(request)) });
   }
 
+  if (pathname === '/api/conversations' && request.method === 'GET') {
+    const folder = searchParams.get('folder');
+    const parsedPage = Number(searchParams.get('page') ?? '1');
+    const page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? Math.min(parsedPage, 10_000) : 1;
+    const limit = parseLimit(searchParams.get('limit'), 25, 50);
+    return json(await listConversations(env, {
+      folder: folder === 'sent' || folder === 'archive' || folder === 'trash' ? folder : 'inbox',
+      aliasId: searchParams.get('aliasId') ?? undefined,
+      query: searchParams.get('q') ?? undefined,
+      unreadOnly: searchParams.get('unread') === '1',
+      limit, offset: (page - 1) * limit,
+    }));
+  }
+  const conversationId = routeId(pathname, '/api/conversations/');
+  if (conversationId && request.method === 'GET') return json(await getConversation(env, conversationId));
+  if (conversationId && request.method === 'PATCH') {
+    assertSameOrigin(request);
+    const input = await readJson<{ read?: unknown }>(request);
+    if (typeof input?.read !== 'boolean') throw new HttpError(400, 'invalid_read_state', '邮件阅读状态不正确。');
+    await markConversationRead(env, conversationId, input.read);
+    return json({ ok: true });
+  }
+
+  if (pathname === '/api/drafts' && request.method === 'GET') return json({ drafts: await listDrafts(env) });
+  if (pathname === '/api/drafts' && request.method === 'POST') {
+    assertSameOrigin(request);
+    return json({ draft: await saveDraft(env, await readJson<DraftInput>(request)) }, 201);
+  }
+  const writeId = routeId(pathname, '/api/drafts/');
+  if (writeId && request.method === 'GET') return json({ draft: await getDraft(env, writeId) });
+  if (writeId && (request.method === 'PUT' || request.method === 'DELETE')) {
+    assertSameOrigin(request);
+    if (request.method === 'PUT') {
+      return json({ draft: await saveDraft(env, await readJson<DraftInput>(request), writeId) });
+    }
+    await discardDraft(env, writeId);
+    return json({ ok: true });
+  }
+
+  const sendId = routeId(pathname, '/api/drafts/', '/send');
+  if (sendId && request.method === 'POST') {
+    assertSameOrigin(request);
+    await readJson(request);
+    return json(await sendDraft(env, sendId));
+  }
+  const generateId = routeId(pathname, '/api/drafts/', '/suggest');
+  if (generateId && request.method === 'POST') {
+    assertSameOrigin(request);
+    const body = await readJson<{ instruction?: unknown }>(request);
+    return json({ text: await generateDraftText(env, generateId, body?.instruction) });
+  }
+  const uploadId = routeId(pathname, '/api/drafts/', '/files');
+  if (uploadId && request.method === 'POST') {
+    assertSameOrigin(request);
+    return json({ file: await uploadDraftFile(env, uploadId, request, searchParams.get('name') ?? '') }, 201);
+  }
+  const draftFile = pathname.match(/^\/api\/drafts\/([a-f0-9-]+)\/files\/([a-f0-9-]+)$/i);
+  if (draftFile && request.method === 'DELETE') {
+    assertSameOrigin(request);
+    await discardDraftFile(env, draftFile[1], draftFile[2]);
+    return json({ ok: true });
+  }
+
   if (pathname === '/api/emails' && request.method === 'GET') {
     return json({
       emails: await listEmails(env, {
@@ -230,6 +300,19 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
         limit: parseLimit(searchParams.get('limit')),
       }),
     });
+  }
+
+  const placementId = routeId(pathname, '/api/emails/', '/placement');
+  if (placementId && request.method === 'PATCH') {
+    assertSameOrigin(request);
+    const { starred, folder } = await readJson<{ starred?: unknown; folder?: unknown }>(request) ?? {};
+    if ((starred !== undefined && typeof starred !== 'boolean')
+      || (folder !== undefined && folder !== 'archive' && folder !== 'trash' && folder !== 'restore')
+      || (starred === undefined && folder === undefined)) {
+      throw new HttpError(400, 'invalid_mail_placement', '邮件标记或文件夹无效。');
+    }
+    await updateMailPlacement(env, placementId, { starred, folder });
+    return json({ ok: true });
   }
 
   const emailId = routeId(pathname, '/api/emails/');

@@ -44,9 +44,21 @@ export type EmailSummary = {
   attachmentCount: number;
 };
 
+export type MailFolder = 'inbox' | 'sent' | 'archive' | 'trash';
+export type ConversationSummary = EmailSummary & {
+  threadCount: number;
+  unreadCount: number;
+  starred: boolean;
+  outgoing: boolean;
+};
+
 export type EmailDetail = EmailSummary & {
   messageId: string;
   bodyText: string;
+  bodyHtml?: string;
+  outgoing?: boolean;
+  replyAddress?: string;
+  cc?: string;
   sentAt: string | null;
   attachments: AttachmentItem[];
 };
@@ -99,4 +111,27 @@ export type ApiErrorPayload = {
     message: string;
     requestId?: string;
   };
+};
+
+export type Conversation = { messages: EmailDetail[]; total: number };
+export type DraftMode = 'new' | 'reply' | 'forward';
+export type DraftFile = { id: string; filename: string; contentType: string; size: number };
+export type DraftInput = {
+  aliasId: string;
+  mode: DraftMode;
+  sourceEmailId: string | null;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  bodyText: string;
+  bodyHtml: string;
+  includeOriginalFiles: boolean;
+};
+export type MailDraft = DraftInput & {
+  id: string;
+  fromAddress: string;
+  status: 'draft' | 'sending' | 'uncertain' | 'sent';
+  updatedAt: string;
+  files: DraftFile[];
 };

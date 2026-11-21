@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App';
 import { ApiRequestError, mailboxApi } from '../../src/client/api';
-import type { BootstrapPayload, EmailDetail } from '../../src/shared/types';
+import type { BootstrapPayload, Conversation, EmailDetail, EmailSummary } from '../../src/shared/types';
 
 vi.mock('../../src/client/api', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../src/client/api')>();
@@ -22,14 +22,31 @@ const bootstrap: BootstrapPayload = {
   recentEmails: [email], recentAliases: [], mailAccounts: [],
 };
 
+beforeAll(async () => {
+  await import('../../src/client/workbench/InboxWorkbench');
+});
+
 beforeEach(() => {
   vi.resetAllMocks();
+  window.matchMedia = vi.fn().mockImplementation(() => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }));
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
   vi.mocked(mailboxApi.session).mockResolvedValue({ authenticated: true, user: { email: 'admin@example.com' } });
   vi.mocked(mailboxApi.bootstrap).mockResolvedValue(bootstrap);
   vi.mocked(mailboxApi.aliases).mockResolvedValue({ aliases: [] });
   vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [email] });
+  vi.mocked(mailboxApi.conversations).mockImplementation(async () => {
+    const { emails } = await mailboxApi.emails();
+    return {
+      total: emails.length,
+      conversations: emails.map((item: EmailSummary) => ({
+        ...item, threadCount: 1, unreadCount: item.readAt ? 0 : 1, starred: false, outgoing: false,
+      })),
+    };
+  });
+  vi.mocked(mailboxApi.conversation).mockResolvedValue({ messages: [email], total: 1 });
+  vi.mocked(mailboxApi.markConversation).mockResolvedValue({ ok: true });
+  vi.mocked(mailboxApi.drafts).mockResolvedValue({ drafts: [] });
   vi.mocked(mailboxApi.files).mockResolvedValue({ files: [] });
   vi.mocked(mailboxApi.email).mockResolvedValue({ email });
   vi.mocked(mailboxApi.setEmailRead).mockResolvedValue({ ok: true });
@@ -38,6 +55,7 @@ afterEach(cleanup);
 
 async function overview() {
   render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: '概览' }));
   await screen.findByRole('button', { name: /测试邮件/ });
 }
 
@@ -47,20 +65,20 @@ describe('mail reading and failure recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: /测试邮件/ }));
     await screen.findByText(email.bodyText);
     expect(screen.getByRole('heading', { name: '收件箱' })).toBeTruthy();
-    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '邮件会话' })).toBeTruthy();
   });
 
   it('keeps a slow message closed and unread after dismissing its loading dialog', async () => {
     await overview();
     fireEvent.click(screen.getByRole('button', { name: /查看全部/ }));
-    let resolve!: (value: { email: EmailDetail }) => void;
-    vi.mocked(mailboxApi.email).mockReturnValue(new Promise((done) => { resolve = done; }));
-    fireEvent.click(screen.getByRole('button', { name: /测试邮件/ }));
+    let resolve!: (value: Conversation) => void;
+    vi.mocked(mailboxApi.conversation).mockReturnValue(new Promise((done) => { resolve = done; }));
+    fireEvent.click(await screen.findByRole('button', { name: /测试邮件/ }));
     await screen.findByText('正在加载邮件');
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
-    await act(async () => { resolve({ email }); });
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(mailboxApi.setEmailRead).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '关闭会话' }));
+    await act(async () => { resolve({ messages: [email], total: 1 }); });
+    expect(screen.queryByRole('region', { name: '邮件会话' })).toBeNull();
+    expect(mailboxApi.markConversation).not.toHaveBeenCalled();
   });
 
   it('shows session expiry on the login screen instead of hiding the error', async () => {
@@ -79,9 +97,8 @@ describe('mail reading and failure recovery', () => {
     render(<App />);
     fireEvent.change(await screen.findByLabelText('管理员密码'), { target: { value: 'local-test-password' } });
     fireEvent.click(screen.getByRole('button', { name: '进入管理端' }));
-    await screen.findByRole('heading', { name: '邮箱概览' });
+    await screen.findByRole('heading', { name: '收件箱' });
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('数据加载失败'));
-    fireEvent.click(screen.getByRole('button', { name: /查看全部/ }));
     fireEvent.click(screen.getByRole('button', { name: '一键刷新' }));
     await screen.findByRole('button', { name: /测试邮件/ });
   });
@@ -119,14 +136,16 @@ it('refreshes both connected mailboxes in one click and displays an individual f
   expect(mailboxApi.refreshMailAccount).toHaveBeenCalledTimes(2);
   expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('qq');
   expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('163');
-  expect(screen.getByText('邮箱授权失败')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '邮箱设置' }));
+  await screen.findByText('邮箱授权失败');
+  fireEvent.click(screen.getByRole('button', { name: /^收件箱/ }));
 
   vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [
     { ...email, id: 'older-163', aliasId: '163', aliasAddress: 'owner@163.com', subject: '163 历史邮件' },
   ] });
   fireEvent.change(screen.getByLabelText('筛选邮箱'), { target: { value: '163' } });
   await screen.findByRole('button', { name: /163 历史邮件/ });
-  expect(mailboxApi.emails).toHaveBeenCalledWith(expect.objectContaining({ aliasId: '163' }));
+  expect(mailboxApi.conversations).toHaveBeenCalledWith(expect.objectContaining({ aliasId: '163' }));
   expect(screen.queryByRole('button', { name: /QQ 新邮件/ })).toBeNull();
 });
 
@@ -135,7 +154,7 @@ it('can sign in with a device certificate without entering a password', async ()
   vi.mocked(mailboxApi.loginWithCertificate).mockResolvedValue({ authenticated: true, user: { email: 'admin@example.com' } });
   render(<App />);
   fireEvent.click(await screen.findByRole('button', { name: '使用设备证书登录' }));
-  await screen.findByRole('heading', { name: '邮箱概览' });
+  await screen.findByRole('heading', { name: '收件箱' });
   expect(mailboxApi.loginWithCertificate).toHaveBeenCalledTimes(1);
   expect(mailboxApi.login).not.toHaveBeenCalled();
 });

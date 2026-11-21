@@ -1,7 +1,7 @@
 import { ArrowRight, AtSign, Files, HardDrive, Inbox, MailOpen, Plus } from 'lucide-react';
 import type { DashboardStats, EmailSummary, MailAlias } from '../../shared/types';
 import { formatBytes, formatDate, senderLabel } from '../format';
-import type { ViewName } from '../components/Layout';
+import type { ViewName } from '../workbench/InboxWorkbench';
 
 type OverviewViewProps = {
   stats: DashboardStats;

@@ -1,6 +1,12 @@
 import type {
   AttachmentItem,
   BootstrapPayload,
+  Conversation,
+  ConversationSummary,
+  DraftFile,
+  DraftInput,
+  MailDraft,
+  MailFolder,
   EmailDetail,
   EmailSummary,
   MailAlias,
@@ -88,6 +94,36 @@ export const mailboxApi = {
     if (filter.unreadOnly) params.set('unread', '1');
     return api<{ emails: EmailSummary[] }>(`/api/emails?${params}`, { signal: filter.signal });
   },
+  conversations: (filter: { folder: MailFolder; page?: number; aliasId?: string; query?: string; unreadOnly?: boolean; signal?: AbortSignal }) => {
+    const params = new URLSearchParams({ folder: filter.folder, page: String(filter.page ?? 1) });
+    if (filter.aliasId) params.set('aliasId', filter.aliasId);
+    if (filter.query) params.set('q', filter.query);
+    if (filter.unreadOnly) params.set('unread', '1');
+    return api<{ conversations: ConversationSummary[]; total: number }>(`/api/conversations?${params}`, { signal: filter.signal });
+  },
+  conversation: (id: string, signal?: AbortSignal) =>
+    api<Conversation>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
+  markConversation: (id: string, read: boolean) =>
+    api<{ ok: true }>(`/api/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ read }) }),
+  placeEmail: (id: string, update: { starred?: boolean; folder?: 'archive' | 'trash' | 'restore' }) =>
+    api<{ ok: true }>(`/api/emails/${encodeURIComponent(id)}/placement`, { method: 'PATCH', body: JSON.stringify(update) }),
+  drafts: (signal?: AbortSignal) => api<{ drafts: MailDraft[] }>('/api/drafts', { signal }),
+  draft: (id: string) => api<{ draft: MailDraft }>(`/api/drafts/${encodeURIComponent(id)}`),
+  saveDraft: (body: DraftInput, id?: string) => api<{ draft: MailDraft }>(
+    id ? `/api/drafts/${encodeURIComponent(id)}` : '/api/drafts',
+    { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) },
+  ),
+  discardDraft: (id: string) => api<{ ok: true }>(`/api/drafts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  sendDraft: (id: string) => api<{ id: string; rejected: string[] }>(`/api/drafts/${encodeURIComponent(id)}/send`, { method: 'POST', body: '{}' }),
+  suggestDraft: (id: string, instruction: string) =>
+    api<{ text: string }>(`/api/drafts/${encodeURIComponent(id)}/suggest`, { method: 'POST', body: JSON.stringify({ instruction }) }),
+  addDraftFile: (id: string, file: File) => api<{ file: DraftFile }>(
+    `/api/drafts/${encodeURIComponent(id)}/files?name=${encodeURIComponent(file.name)}`,
+    { method: 'POST', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } },
+  ),
+  removeDraftFile: (id: string, fileId: string) => api<{ ok: true }>(
+    `/api/drafts/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' },
+  ),
   email: (id: string) => api<{ email: EmailDetail }>(`/api/emails/${encodeURIComponent(id)}`),
   setEmailRead: (id: string, read: boolean) =>
     api<{ ok: boolean }>(`/api/emails/${encodeURIComponent(id)}`, {

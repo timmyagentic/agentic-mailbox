@@ -1,0 +1,68 @@
+/* Adapted from Cloudflare Agentic Inbox, Copyright (c) 2026 Cloudflare, Inc.
+ * Apache-2.0, see LICENSE.agentic-inbox. */
+@source "../../../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@cloudflare/kumo/styles/tailwind";
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+.vault-workbench {
+  height: 100dvh;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.vault-workbench .workbench-content {
+  min-height: 0;
+}
+
+.vault-workbench .vault-row {
+  min-height: 58px;
+}
+
+.vault-workbench :is(.vault-body, .ProseMirror) {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.vault-workbench :is(.vault-body, .ProseMirror) :is(p, ul, ol, blockquote) {
+  margin: 0 0 0.9em;
+}
+
+.vault-workbench :is(.vault-body, .ProseMirror) blockquote {
+  border-left: 2px solid var(--color-kumo-line);
+  padding-inline-start: 0.85rem;
+  color: var(--color-kumo-subtle);
+}
+
+.vault-workbench :is(.vault-body, .ProseMirror) :is(ul, ol) {
+  padding-inline-start: 1.5em;
+}
+
+.vault-workbench .ProseMirror {
+  min-height: 148px;
+  outline: 0;
+  padding: 12px;
+}
+
+.vault-workbench .vault-compose :focus-within .ProseMirror {
+  caret-color: var(--color-kumo-brand);
+}
+
+.vault-workbench .vault-body pre {
+  white-space: pre-wrap;
+  font: inherit;
+  margin: 0;
+}
+
+.vault-workbench .workbench-history {
+  scrollbar-width: thin;
+}
+
+.vault-workbench .vault-outline {
+  outline: none;
+}
+
+.vault-workbench .vault-outline:focus-visible {
+  outline: 2px solid var(--color-kumo-brand);
+  outline-offset: -2px;
+}

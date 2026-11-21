@@ -10,6 +10,8 @@ export interface Env {
   ADMIN_CERT_FINGERPRINTS?: string;
   SESSION_SECRET: string;
   MAIL_ACCOUNT_KEY?: string;
+  EMAIL?: SendEmail;
+  AI?: Ai;
 }
 
 export type EmailWorkerMessage = ForwardableEmailMessage;
@@ -41,6 +43,11 @@ export type EmailRow = {
   subject: string;
   preview: string;
   body_text: string;
+  body_html: string;
+  headers_json: string;
+  thread_key: string;
+  outgoing: number;
+  starred: number;
   received_at: string;
   sent_at: string | null;
   raw_size: number;

@@ -65,7 +65,7 @@ async function sealCredential(env: Env, address: string, code: string) {
   return `${toBase64(iv)}.${toBase64(new Uint8Array(ciphertext))}`;
 }
 
-async function openCredential(env: Env, account: SyncRow) {
+async function openCredential(env: Env, account: { address: string; credential: string }) {
   const key = await getCredentialKey(env);
   const [iv, ciphertext] = account.credential.split('.');
   const bytes = await crypto.subtle.decrypt(cipherParams(account.address, fromBase64(iv)), key, fromBase64(ciphertext));
@@ -179,4 +179,13 @@ export async function refreshMailAccount(env: Env, id: string): Promise<MailRefr
     await env.DB.prepare('UPDATE imap_accounts SET sync_id = NULL, sync_until = 0 WHERE id = ?1 AND sync_id = ?2')
       .bind(id, syncId).run();
   }
+}
+
+export async function getMailAccountCredentials(env: Env, id: string) {
+  const account = await env.DB.prepare(
+    `SELECT c.provider, c.credential, a.address FROM imap_accounts c
+     JOIN aliases a ON a.id = c.id WHERE c.id = ?1 AND a.status = 'active'`,
+  ).bind(id).first<{ provider: MailProvider; credential: string; address: string }>();
+  if (!account) return null;
+  return { provider: account.provider, address: account.address, authorizationCode: await openCredential(env, account) };
 }

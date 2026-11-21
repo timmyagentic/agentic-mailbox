@@ -22,9 +22,12 @@ export function elapsedMs(started: number): number {
 
 // Templates keep search text and arbitrary resource identifiers out of logs.
 export function requestRoute(pathname: string): string {
-  if (['/api/health', '/api/session', '/api/session/certificate', '/api/bootstrap', '/api/aliases', '/api/mail-accounts', '/api/emails', '/api/files'].includes(pathname)) {
+  if (['/api/health', '/api/session', '/api/session/certificate', '/api/bootstrap', '/api/aliases', '/api/mail-accounts', '/api/emails', '/api/files', '/api/conversations', '/api/drafts'].includes(pathname)) {
     return pathname;
   }
+  if (/^\/api\/conversations\/[^/]+$/.test(pathname)) return '/api/conversations/:id';
+  if (/^\/api\/drafts\/[^/]+(?:\/(?:send|suggest|files)(?:\/[^/]+)?)?$/.test(pathname)) return '/api/drafts/:id';
+  if (/^\/api\/emails\/[^/]+\/placement$/.test(pathname)) return '/api/emails/:id/placement';
   if (/^\/api\/mail-accounts\/[^/]+\/refresh$/.test(pathname)) return '/api/mail-accounts/:id/refresh';
   if (/^\/api\/aliases\/[^/]+$/.test(pathname)) return '/api/aliases/:id';
   if (/^\/api\/emails\/[^/]+$/.test(pathname)) return '/api/emails/:id';

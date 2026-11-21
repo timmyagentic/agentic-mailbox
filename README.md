@@ -28,6 +28,16 @@ The IMAP connection uses fixed TLS endpoints and encrypted authorization codes. 
 
 The unified inbox follows [Zero](https://github.com/Mail-0/Zero/blob/4b642df/apps/server/src/trpc/routes/mail.ts#L224). IMAP uses [ImapFlow](https://github.com/postalsys/imapflow). The NetEase-specific post-login `ID` follows [Mailspring-Sync's compatibility fix](https://github.com/Foundry376/Mailspring-Sync/pull/121).
 
+## Conversation workspace
+
+The workbench keeps the unified Inbox and account filter, with Sent, Drafts, Archive, and Trash views. It groups messages within one connected address using their message IDs and reply references. The reader shows the most recent 50 messages in a conversation. Folder, star, and read changes are stored by Mailbox Vault.
+
+Compose, reply, and forward from an enabled address. QQ and 163 send through their TLS SMTP servers on port 465 using the existing client authorization code. Managed aliases send through the Worker `EMAIL` binding once the domain has been onboarded to Cloudflare Email Sending. Replies pass threading headers and forwards can include the source attachments. All attachments in a message share a 5 MiB limit. Send attempts with an uncertain result leave the draft locked for review.
+
+Open the Agent panel to generate a draft on demand. The `AI` binding uses Workers AI Gemma 4. Generation uses the current prompt, draft text and a limited excerpt of the selected conversation. Review or edit the resulting draft before pressing Send.
+
+The workbench adapts the Apache-2.0 source layout, components and styles of [Cloudflare Agentic Inbox, 48039bb](https://github.com/cloudflare/agentic-inbox/tree/48039bb6785af34e592c2966f87cde2b255c4c80). Adapted files preserve attribution. See [LICENSE.agentic-inbox](LICENSE.agentic-inbox).
+
 ## Architecture
 
 ```mermaid
@@ -109,7 +119,7 @@ After deployment, point the `emomo.net` Email Routing catch-all rule at the `mai
 - `workers.dev` and preview URLs are disabled; the app is served only on its custom domain.
 - API sessions are HMAC signed, expire after 24 hours, and use `HttpOnly`, `SameSite=Strict` cookies.
 - State-changing requests enforce same-origin browser requests and JSON content types.
-- Email HTML is stored for provenance but never rendered in the admin UI; the UI displays plain text only.
+- The reader sanitizes email HTML before rendering. Remote images, scripts and embedded content are stripped.
 - Attachments are private R2 objects and can only be downloaded through an authenticated API route.
 - CSP, frame denial, MIME sniffing protection, referrer policy, and restricted browser permissions are set on every response.
 - Unknown aliases are rejected instead of becoming an open catch-all inbox.

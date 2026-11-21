@@ -1,12 +1,16 @@
 import type {
   AttachmentItem,
   DashboardStats,
+  Conversation,
+  ConversationSummary,
+  MailFolder,
   EmailDetail,
   EmailSummary,
   MailAlias,
 } from '../shared/types';
 import { isValidLocalPart, normalizeLocalPart, slugifyPurpose } from '../shared/validation';
 import { HttpError } from './http';
+import { mailHeaders } from './thread-keys';
 import type { AliasRow, AttachmentRow, EmailRow, Env } from './types';
 
 type CreateAliasInput = {
@@ -42,11 +46,13 @@ const ALIAS_SELECT = `
 
 const notImapAccount = 'NOT EXISTS (SELECT 1 FROM imap_accounts c WHERE c.id = aliases.id)';
 
+const threadIdSql = "COALESCE(NULLIF(e.thread_key, ''), 'local:' || e.id)";
+
 const EMAIL_SELECT = `
   SELECT e.id, e.alias_id, a.address AS alias_address, a.label AS alias_label,
          e.message_id, e.from_address, e.from_name, e.to_address, e.subject,
-         e.preview, e.body_text, e.received_at, e.sent_at, e.raw_size, e.read_at,
-         e.attachment_count
+         e.preview, e.body_text, e.body_html, e.headers_json, e.thread_key,
+         e.outgoing, e.starred, e.received_at, e.sent_at, e.raw_size, e.read_at, e.attachment_count
   FROM emails e
   JOIN aliases a ON a.id = e.alias_id`;
 
@@ -228,7 +234,7 @@ export async function listEmails(env: Env, options: ListEmailOptions): Promise<E
   const aliasId = options.aliasId?.trim() ?? '';
   const rows = await env.DB.prepare(
     `${EMAIL_SELECT}
-     WHERE (?1 = '' OR e.alias_id = ?1)
+     WHERE e.folder = 'inbox' AND (?1 = '' OR e.alias_id = ?1)
        AND (?2 = '' OR e.subject LIKE ?3 OR e.from_address LIKE ?3 OR e.from_name LIKE ?3
             OR e.to_address LIKE ?3 OR e.preview LIKE ?3)
        AND (?4 = 0 OR e.read_at IS NULL)
@@ -238,6 +244,107 @@ export async function listEmails(env: Env, options: ListEmailOptions): Promise<E
     .bind(aliasId, query, `%${query}%`, options.unreadOnly ? 1 : 0, options.limit)
     .all<EmailRow>();
   return rows.results.map(mapEmail);
+}
+
+export async function listConversations(env: Env, options: ListEmailOptions & {
+  folder: MailFolder; offset: number;
+}): Promise<{ conversations: ConversationSummary[]; total: number }> {
+  const query = options.query?.trim().slice(0, 120) ?? '';
+  const filter = `
+    FROM emails e WHERE e.folder = ?1 AND (?2 = '' OR e.alias_id = ?2)
+      AND (?3 = '' OR e.subject LIKE ?4 OR e.from_address LIKE ?4 OR e.from_name LIKE ?4
+        OR e.to_address LIKE ?4 OR e.preview LIKE ?4 OR e.body_text LIKE ?4)
+      AND (?5 = 0 OR e.read_at IS NULL)`;
+  const parameters = [options.folder, options.aliasId ?? '', query, `%${query}%`, options.unreadOnly ? 1 : 0] as const;
+  const [rows, count] = await Promise.all([
+    env.DB.prepare(`WITH ranked AS (
+      SELECT e.id,
+        ROW_NUMBER() OVER (PARTITION BY e.alias_id, ${threadIdSql} ORDER BY e.received_at DESC, e.id DESC) AS rank
+      ${filter}
+    )
+    SELECT e.id, e.alias_id, a.address AS alias_address, a.label AS alias_label,
+      e.from_address, e.from_name, e.to_address, e.subject, e.preview,
+      e.received_at, e.read_at, e.raw_size, e.attachment_count, e.outgoing, e.starred,
+      (SELECT COUNT(*) FROM emails t WHERE t.alias_id = e.alias_id
+        AND COALESCE(NULLIF(t.thread_key, ''), 'local:' || t.id) = ${threadIdSql}
+        AND (t.folder != 'trash' OR e.folder = 'trash')) AS thread_count,
+      (SELECT COUNT(*) FROM emails t WHERE t.alias_id = e.alias_id
+        AND COALESCE(NULLIF(t.thread_key, ''), 'local:' || t.id) = ${threadIdSql}
+        AND t.folder = e.folder AND t.read_at IS NULL) AS unread_count
+    FROM ranked r JOIN emails e ON e.id = r.id JOIN aliases a ON a.id = e.alias_id
+    WHERE r.rank = 1 ORDER BY e.received_at DESC, e.id DESC LIMIT ?6 OFFSET ?7`)
+      .bind(...parameters, options.limit, options.offset).all<EmailRow & { thread_count: number; unread_count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS total FROM (
+      SELECT e.alias_id, ${threadIdSql} ${filter} GROUP BY e.alias_id, ${threadIdSql}
+    )`).bind(...parameters).first<number>('total'),
+  ]);
+  return {
+    conversations: rows.results.map((row) => ({
+      ...mapEmail(row), threadCount: row.thread_count, unreadCount: row.unread_count,
+      starred: Boolean(row.starred), outgoing: Boolean(row.outgoing),
+    })),
+    total: count ?? 0,
+  };
+}
+
+const conversationMembership = `
+  e.alias_id = s.alias_id
+  AND ${threadIdSql} = COALESCE(NULLIF(s.thread_key, ''), 'local:' || s.id)
+  AND (e.folder != 'trash' OR s.folder = 'trash')`;
+
+function detailFromRow(email: EmailRow, attachments: AttachmentItem[]): EmailDetail {
+  const headers = mailHeaders(email.headers_json);
+  return {
+    ...mapEmail(email),
+    messageId: email.message_id,
+    bodyText: email.body_text,
+    bodyHtml: email.body_html,
+    outgoing: Boolean(email.outgoing),
+    replyAddress: headers['reply-to'] || headers.from,
+    cc: headers.cc,
+    sentAt: email.sent_at,
+    attachments,
+  };
+}
+
+export async function getConversation(env: Env, id: string): Promise<Conversation> {
+  const membership = `JOIN emails s ON s.id = ?1 WHERE ${conversationMembership}`;
+  const [messages, total] = await Promise.all([
+    env.DB.prepare(`${EMAIL_SELECT} ${membership}
+      ORDER BY e.received_at DESC, e.id DESC LIMIT 50`).bind(id).all<EmailRow>(),
+    env.DB.prepare(`SELECT COUNT(*) AS total FROM emails e ${membership}`).bind(id).first<number>('total'),
+  ]);
+  if (!messages.results.length) throw new HttpError(404, 'email_not_found', '邮件不存在。');
+
+  const ids = messages.results.map((email) => email.id);
+  const attachments = await env.DB.prepare(
+    `${ATTACHMENT_SELECT} WHERE f.email_id IN (${ids.map(() => '?').join(',')}) ORDER BY f.created_at, f.id`,
+  ).bind(...ids).all<AttachmentRow>();
+  const files = new Map<string, AttachmentItem[]>();
+  for (const row of attachments.results) {
+    const group = files.get(row.email_id) ?? [];
+    group.push(mapAttachment(row));
+    files.set(row.email_id, group);
+  }
+  return {
+    messages: messages.results.reverse().map((email) => detailFromRow(email, files.get(email.id) ?? [])),
+    total: total ?? messages.results.length,
+  };
+}
+
+export async function markConversationRead(env: Env, id: string, read: boolean) {
+  await env.DB.prepare(`UPDATE emails AS e SET read_at = ?2
+    WHERE folder = 'inbox' AND EXISTS (SELECT 1 FROM emails s WHERE s.id = ?1 AND ${conversationMembership})`)
+    .bind(id, read ? new Date().toISOString() : null).run();
+}
+
+export async function updateMailPlacement(env: Env, id: string, input: { starred?: boolean; folder?: 'archive' | 'trash' | 'restore' }) {
+  const result = await env.DB.prepare(`UPDATE emails
+    SET starred = COALESCE(?2, starred), folder = CASE
+      WHEN ?3 = 'restore' THEN CASE WHEN outgoing = 1 THEN 'sent' ELSE 'inbox' END
+      ELSE COALESCE(?3, folder) END WHERE id = ?1`)
+    .bind(id, typeof input.starred === 'boolean' ? Number(input.starred) : null, input.folder ?? null).run();
+  if (!result.meta.changes) throw new HttpError(404, 'email_not_found', '邮件不存在。');
 }
 
 export async function getEmail(env: Env, id: string): Promise<EmailDetail> {
@@ -252,13 +359,7 @@ export async function getEmail(env: Env, id: string): Promise<EmailDetail> {
     throw new HttpError(404, 'email_not_found', '邮件不存在。');
   }
 
-  return {
-    ...mapEmail(email),
-    messageId: email.message_id,
-    bodyText: email.body_text,
-    sentAt: email.sent_at,
-    attachments: attachments.results.map(mapAttachment),
-  };
+  return detailFromRow(email, attachments.results.map(mapAttachment));
 }
 
 export async function setEmailRead(env: Env, id: string, read: boolean): Promise<void> {
@@ -307,7 +408,7 @@ export async function getStats(env: Env): Promise<DashboardStats> {
       count(env.DB, `SELECT COUNT(*) AS value FROM aliases WHERE ${notImapAccount}`),
       count(env.DB, `SELECT COUNT(*) AS value FROM aliases WHERE status = 'active' AND ${notImapAccount}`),
       count(env.DB, 'SELECT COUNT(*) AS value FROM emails'),
-      count(env.DB, 'SELECT COUNT(*) AS value FROM emails WHERE read_at IS NULL'),
+      count(env.DB, "SELECT COUNT(*) AS value FROM emails WHERE folder = 'inbox' AND read_at IS NULL"),
       count(env.DB, 'SELECT COUNT(*) AS value FROM attachments'),
       count(env.DB, 'SELECT COALESCE(SUM(size), 0) AS value FROM attachments'),
     ]);
