@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/client/App';
 import { ApiRequestError, mailboxApi } from '../../src/client/api';
@@ -163,17 +163,80 @@ it('can sign in with a device certificate without entering a password', async ()
   expect(mailboxApi.login).not.toHaveBeenCalled();
 });
 
-it('finishes the OAuth callback, removes the temporary fragment, and opens mailbox settings', async () => {
-  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, oauthProviders: ['gmail', 'outlook'] });
+it('offers the first sync from the page after a successful OAuth callback', async () => {
+  const account = { id: 'new-outlook', address: 'owner@outlook.com', provider: 'outlook' as const, lastSyncAt: null };
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts: [account], oauthProviders: ['outlook'] });
   vi.mocked(mailboxApi.finishMailOAuth).mockResolvedValue({ ok: true });
+  vi.mocked(mailboxApi.refreshMailAccount).mockResolvedValue({
+    result: { id: account.id, imported: 1, oversized: 0, hasMore: false, lastSyncAt: null },
+  });
   window.history.replaceState(null, '', '/#mailOAuth=outlook&state=state-fixture&code=authorization-fixture');
   render(<App />);
-  await screen.findByRole('heading', { name: '已接入邮箱' });
+  expect(await screen.findByText('Outlook 已连接')).toBeTruthy();
   expect(window.location.hash).toBe('');
   expect(mailboxApi.finishMailOAuth).toHaveBeenCalledExactlyOnceWith('outlook', {
     state: 'state-fixture', code: 'authorization-fixture', error: null,
   });
+  fireEvent.click(screen.getByRole('button', { name: '同步邮件' }));
+  await waitFor(() => expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith(account.id));
+  await screen.findByText('同步了 1 封邮件。');
+});
+
+it('shows provider setup instead of a disabled OAuth button and rechecks readiness in the same dialog', async () => {
+  vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [] });
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValueOnce(bootstrap)
+    .mockResolvedValue({ ...bootstrap, oauthProviders: ['gmail'] });
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: '接入邮箱' }));
+  const dialog = screen.getByRole('dialog', { name: '接入邮箱' });
+  fireEvent.click(within(dialog).getByRole('button', { name: /Gmail/ }));
+  expect(within(dialog).getByText('Gmail 尚未启用。')).toBeTruthy();
+  expect(within(dialog).getByRole('link', { name: '打开 Google Cloud' }).getAttribute('href')).toContain('console.cloud.google.com');
+  expect(within(dialog).queryByLabelText('客户端授权码')).toBeNull();
+  fireEvent.click(within(dialog).getByRole('button', { name: '重新检查' }));
+  expect(await within(dialog).findByRole('button', { name: '使用 Google 继续' })).toBeTruthy();
+  expect(mailboxApi.startMailOAuth).not.toHaveBeenCalled();
+});
+
+it('retries a cancelled reauthorization for the original account', async () => {
+  const account = { id: 'existing-outlook', address: 'owner@outlook.com', provider: 'outlook' as const, lastSyncAt: null };
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts: [account], oauthProviders: ['outlook'] });
+  vi.mocked(mailboxApi.finishMailOAuth).mockRejectedValue(new ApiRequestError(400, 'oauth_authorization_cancelled', '邮箱授权未完成。'));
+  vi.mocked(mailboxApi.startMailOAuth).mockRejectedValue(new Error('模拟服务暂不可用'));
+  window.sessionStorage.setItem('mailbox-vault-oauth-reconnect', 'outlook:' + account.id);
+  window.history.replaceState(null, '', '/#mailOAuth=outlook&state=state-fixture&error=access_denied');
+  render(<App />);
+  await screen.findByText('Outlook 授权已取消');
+  fireEvent.click(screen.getByRole('button', { name: '重新连接' }));
+  const dialog = screen.getByRole('dialog', { name: '重新授权 Outlook' });
+  fireEvent.click(within(dialog).getByRole('button', { name: '使用 Microsoft 继续' }));
+  expect(within(dialog).getByText(account.address)).toBeTruthy();
+  await within(dialog).findByRole('alert');
+  expect(mailboxApi.startMailOAuth).toHaveBeenCalledExactlyOnceWith('outlook', account.id);
+});
+
+it('shows the selected IMAP guide and only saves an address for that provider', async () => {
+  vi.mocked(mailboxApi.saveMailAccount).mockResolvedValue({
+    account: { id: 'foxmail', provider: 'qq', address: 'owner@foxmail.com', lastSyncAt: null },
+  });
+  render(<App />);
+  fireEvent.click(await screen.findByRole('button', { name: '邮箱设置' }));
   fireEvent.click(screen.getByRole('button', { name: '接入邮箱' }));
-  expect((screen.getByRole('button', { name: '使用 Gmail 授权' }) as HTMLButtonElement).disabled).toBe(false);
-  expect((screen.getByRole('button', { name: '使用 Outlook 授权' }) as HTMLButtonElement).disabled).toBe(false);
+  const dialog = screen.getByRole('dialog', { name: '接入邮箱' });
+  fireEvent.click(within(dialog).getByRole('button', { name: /网易 163 邮箱/ }));
+  expect(within(dialog).getByText(/新增授权密码/)).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: '选择其他邮箱' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: /QQ 邮箱/ }));
+  expect(within(dialog).queryByRole('button', { name: '使用 Google 继续' })).toBeNull();
+  fireEvent.change(within(dialog).getByLabelText('邮箱地址'), { target: { value: 'owner@163.com' } });
+  fireEvent.change(within(dialog).getByLabelText('客户端授权码'), { target: { value: 'ABCDEFGHIJKLMNOP' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '连接邮箱' }));
+  expect(await within(dialog).findByRole('alert')).toBeTruthy();
+  expect(mailboxApi.saveMailAccount).not.toHaveBeenCalled();
+  fireEvent.change(within(dialog).getByLabelText('邮箱地址'), { target: { value: 'owner@foxmail.com' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: '连接邮箱' }));
+  await screen.findByText('QQ 邮箱 已连接');
+  expect(mailboxApi.saveMailAccount).toHaveBeenCalledExactlyOnceWith({
+    email: 'owner@foxmail.com', authorizationCode: 'ABCDEFGHIJKLMNOP',
+  });
 });

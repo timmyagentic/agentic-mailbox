@@ -31,7 +31,7 @@ const ComposePanel = lazy(() => import('./ComposePanel'));
 type Props = {
   appName: string; primaryDomain: string; activeView: ViewName; selectedId: string | null;
   aliases: MailAlias[]; accounts: MailAccount[]; revision: EmailSummary[]; unread: number; refreshing: boolean;
-  onNavigate: (view: ViewName) => void; onSelect: (id: string | null) => void;
+  onNavigate: (view: ViewName) => void; onConnectMailbox: () => void; onSelect: (id: string | null) => void;
   onRefresh: () => Promise<void>; onReload: () => Promise<void>; onLogout: () => void;
   onError: (error: unknown) => void; onNotice: (message: string) => void; children: ReactNode;
 };
@@ -66,7 +66,7 @@ function editorFrom(draft: MailDraft): Composer {
 
 export default function InboxWorkbench({
   appName, primaryDomain, activeView, selectedId, aliases, accounts, revision, unread, refreshing,
-  onNavigate, onSelect, onRefresh, onReload, onLogout, onError, onNotice, children,
+  onNavigate, onConnectMailbox, onSelect, onRefresh, onReload, onLogout, onError, onNotice, children,
 }: Props) {
   const [folder, setFolder] = useState<Folder>('inbox');
   const [sourceId, setSourceId] = useState('');
@@ -328,6 +328,9 @@ export default function InboxWorkbench({
               {!total && !listLoading ? <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
                 <TrayIcon size={42} weight="thin" className="text-kumo-subtle mb-3" />
                 <p className="text-sm font-medium">{query ? '没有匹配的邮件' : folder === 'drafts' ? '没有草稿' : '这里还没有邮件'}</p>
+                {folder === 'inbox' && !query && !sourceId && !onlyUnread && !accounts.length ? (
+                  <Button className="mt-4" variant="secondary" onClick={onConnectMailbox}>接入邮箱</Button>
+                ) : null}
               </div> : null}
             </div>
             {total ? <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 border-t border-kumo-line">

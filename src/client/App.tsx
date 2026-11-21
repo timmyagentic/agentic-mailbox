@@ -13,11 +13,22 @@ import { ApiRequestError, mailboxApi } from './api';
 import type { ViewName } from './workbench/InboxWorkbench';
 import { AliasesView } from './views/AliasesView';
 import { FilesView } from './views/FilesView';
-import { ConnectedMailboxes } from './views/ConnectedMailboxes';
+import { ConnectedMailboxes, type MailboxConnectionResult } from './views/ConnectedMailboxes';
 import { LoginView } from './views/LoginView';
 import { OverviewView } from './views/OverviewView';
 
 const InboxWorkbench = lazy(() => import('./workbench/InboxWorkbench'));
+const reconnectStorageKey = 'mailbox-vault-oauth-reconnect';
+
+function takeReconnectTarget(provider: OAuthProvider): string | undefined {
+  try {
+    const target = window.sessionStorage.getItem(reconnectStorageKey);
+    window.sessionStorage.removeItem(reconnectStorageKey);
+    return target?.startsWith(`${provider}:`) ? target.slice(provider.length + 1) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const EMPTY_STATS: DashboardStats = {
   aliasCount: 0,
@@ -43,6 +54,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResults, setRefreshResults] = useState<MailRefreshResult[]>([]);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectionResult, setConnectionResult] = useState<MailboxConnectionResult | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
@@ -82,14 +95,23 @@ export default function App() {
         if (provider === 'gmail' || provider === 'outlook') {
           window.history.replaceState(null, '', window.location.pathname + window.location.search);
           setActiveView('aliases');
+          const accountId = takeReconnectTarget(provider);
           if (session.authenticated) {
             try {
               await mailboxApi.finishMailOAuth(provider, {
                 state: callback.get('state'), code: callback.get('code'), error: callback.get('error'),
               });
-              setToast({ type: 'success', message: '邮箱已授权。点击「一键刷新」同步邮件。' });
+              setConnectionResult({ provider, status: 'connected' });
             } catch (error) {
-              showError(error);
+              if (error instanceof ApiRequestError && error.status === 401) {
+                showError(error);
+                return;
+              }
+              const cancelled = error instanceof ApiRequestError && error.code === 'oauth_authorization_cancelled';
+              setConnectionResult(cancelled ? { provider, accountId, status: 'cancelled' } : {
+                provider, accountId, status: 'failed',
+                message: error instanceof Error ? error.message : '请重新打开授权页。',
+              });
             }
           } else {
             setLoginError('邮箱管理会话已过期，请重新登录后开始授权。');
@@ -142,6 +164,8 @@ export default function App() {
     setAliases([]);
     setEmails([]);
     setRefreshResults([]);
+    setConnectionResult(null);
+    setConnectOpen(false);
     setFiles([]);
     setLoginError('');
     setToast(null);
@@ -190,7 +214,7 @@ export default function App() {
           .sort((a, b) => a.address.localeCompare(b.address)),
       } : current);
       setRefreshResults((current) => current.filter(({ id }) => id !== account.id));
-      setToast({ type: 'success', message: '邮箱已保存。点击「一键刷新」同步邮件。' });
+      setConnectionResult({ provider: account.provider, status: 'connected' });
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) showError(error);
       throw error;
@@ -200,6 +224,12 @@ export default function App() {
   const authorizeMailbox = async (provider: OAuthProvider, accountId?: string) => {
     try {
       const { url } = await mailboxApi.startMailOAuth(provider, accountId);
+      try {
+        if (accountId) window.sessionStorage.setItem(reconnectStorageKey, `${provider}:${accountId}`);
+        else window.sessionStorage.removeItem(reconnectStorageKey);
+      } catch {
+        // The authorization itself still works when browser storage is unavailable.
+      }
       window.location.assign(url);
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) showError(error);
@@ -285,6 +315,7 @@ export default function App() {
           unread={stats.unreadCount}
           refreshing={refreshing}
           onNavigate={navigate}
+          onConnectMailbox={() => { navigate('aliases'); setConnectOpen(true); }}
           onLogout={() => void logout()}
           onReload={loadData}
           onRefresh={refresh}
@@ -304,7 +335,9 @@ export default function App() {
           {activeView === 'aliases' ? (
             <div className="page">
               <ConnectedMailboxes accounts={accounts} results={refreshResults} refreshing={refreshing}
-                oauthProviders={bootstrap?.oauthProviders ?? []} onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
+                oauthProviders={bootstrap?.oauthProviders ?? []} connectOpen={connectOpen} onConnectOpen={setConnectOpen}
+                connectionResult={connectionResult} onDismissResult={() => setConnectionResult(null)}
+                onRefresh={refresh} onRecheck={loadData} onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
               <AliasesView
                 aliases={aliases}
                 primaryDomain={primaryDomain}

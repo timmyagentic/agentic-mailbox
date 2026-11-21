@@ -2319,11 +2319,180 @@ textarea:focus-visible {
   }
 }
 
-.mailbox-oauth-options {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid currentColor;
-  border-color: color-mix(in srgb, currentColor 15%, transparent);
+.mailbox-connect-step {
+  display: grid;
+  gap: 18px;
+  padding: 20px 24px 24px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mailbox-connect-step:focus {
+  outline: none;
+}
+
+.mailbox-connect-note {
+  color: var(--muted);
+}
+
+.mailbox-connect-providers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.mailbox-connect-providers li + li {
+  border-top: 1px solid var(--line);
+}
+
+.mailbox-connect-providers button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 59px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mailbox-connect-providers button:hover {
+  background: var(--surface-soft);
+}
+
+.mailbox-connect-providers button:focus-visible {
+  outline-offset: -3px;
+}
+
+.mailbox-connect-providers button > span:first-child {
+  flex: 1;
+}
+
+.mailbox-connect-providers strong,
+.mailbox-connect-providers small {
+  display: block;
+}
+
+.mailbox-connect-providers small,
+.mailbox-connect-providers svg,
+.mailbox-connect-pending {
+  color: var(--muted);
+}
+
+.mailbox-connect-pending {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mailbox-connect-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-height: 32px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  color: var(--teal-strong);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mailbox-connect-back:hover {
+  background: var(--surface-soft);
+}
+
+.mailbox-connect-body {
+  display: grid;
+  gap: 16px;
+}
+
+.mailbox-connect-body p a,
+.mailbox-connect-details a {
+  color: var(--teal-strong);
+  text-underline-offset: 3px;
+}
+
+.mailbox-connect-body a > svg {
+  display: inline;
+  vertical-align: text-bottom;
+}
+
+.mailbox-connect-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mailbox-connect-actions a.button {
+  text-decoration: none;
+}
+
+.mailbox-connect-details {
+  padding: 10px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.mailbox-connect-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.mailbox-connect-details p {
+  margin-top: 8px;
+}
+
+.mailbox-connect-details dt {
+  font-weight: 600;
+}
+
+.mailbox-connect-details dd {
+  margin: 2px 0 10px;
+  overflow-wrap: anywhere;
+}
+
+.mailbox-connect-error {
+  color: var(--danger);
+}
+
+.mailbox-connection-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.mailbox-connection-result__copy {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.mailbox-connection-result__copy p {
+  margin-top: 2px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 420px) {
+  .mailbox-connect-step {
+    padding: 14px 16px 18px;
+  }
 }
 
 .connected-mailboxes {

@@ -19,7 +19,7 @@ This project provisions routing aliases, not login-capable IMAP/SMTP mailboxes, 
 ## Connected mailboxes
 
 1. In QQ Mail or NetEase 163, enable IMAP and generate a client authorization code.
-2. In Mailbox Vault, open **邮箱设置 → 接入邮箱** and enter the address and authorization code. QQ Mail, Foxmail and consumer 163 accounts are supported.
+2. In Mailbox Vault, open **邮箱设置 → 接入邮箱**, choose QQ or NetEase 163, and enter the address and authorization code. QQ Mail, Foxmail and consumer 163 accounts are supported.
 3. Click **一键刷新** to fetch mail for all connected accounts. The **全部邮箱** filter includes connected accounts and managed aliases. Account errors appear individually and the account's **更新授权码** action preserves its imported mail.
 
 QQ, 163 and Gmail initially import up to 25 recent inbox messages. Outlook starts with the last 30 days of its inbox. Each manual refresh can import up to 25 messages per account. The account status shows when another refresh is needed. Messages larger than 10 MiB are reported and remain in the source mailbox. The app imports the initial read flag and tracks subsequent read changes locally. IMAP PEEK preserves flags and message contents in the source mailbox.
@@ -30,7 +30,7 @@ The unified inbox follows [Zero](https://github.com/Mail-0/Zero/blob/4b642df/app
 
 ### Gmail and Outlook OAuth
 
-In **邮箱设置 → 接入邮箱**, choose **使用 Gmail 授权** or **使用 Outlook 授权** and approve access with the provider. Each provider button becomes available when that OAuth client is configured. Use **重新授权** to renew a connection while keeping its stored mail.
+In **邮箱设置 → 接入邮箱**, choose Gmail or Outlook, then continue to the provider consent screen. If the provider is not ready, the same dialog shows the console link, callback, OAuth permissions and Worker secret names. After completing setup, select **重新检查**. After consent, Mailbox Vault shows a **同步邮件** action. Use **重新授权** to renew a connection while keeping its stored mail.
 
 For a self-hosted instance:
 
