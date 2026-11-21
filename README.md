@@ -30,7 +30,9 @@ The unified inbox follows [Zero](https://github.com/Mail-0/Zero/blob/4b642df/app
 
 ### Gmail and Outlook OAuth
 
-In **邮箱设置 → 接入邮箱**, choose Gmail or Outlook, then continue to the provider consent screen. If the provider is not ready, the same dialog shows the console link, callback, OAuth permissions and Worker secret names. After completing setup, select **重新检查**. After consent, Mailbox Vault shows a **同步邮件** action. Use **重新授权** to renew a connection while keeping its stored mail.
+In **邮箱设置 → 接入邮箱**, choose Gmail or Outlook, then approve access on the provider's consent screen. Mailbox Vault attempts the first sync after the redirect and shows its result. A saved connection can retry sync after an error. Use **重新授权** to renew a connection while keeping its stored mail.
+
+### Provider setup for maintainers
 
 For a self-hosted instance:
 

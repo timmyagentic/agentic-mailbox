@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import type { OAuthProvider } from '../shared/types';
+import { boundedBody } from './http';
 import { gmailApi, graphApi, immutableId, MailProviderError, mailProviderFetch } from './oauth';
 
 const batchSize = 25;
@@ -22,32 +23,6 @@ type GmailRecovery = {
   pageToken: string;
 };
 type GraphCursor = { link: string; offset?: number };
-
-async function boundedBody(response: Response, max: number) {
-  if (Number(response.headers.get('Content-Length')) > max) {
-    await response.body?.cancel();
-    return null;
-  }
-  if (!response.body) throw new Error('Missing provider payload');
-  const chunks: Uint8Array[] = [];
-  const reader = response.body.getReader();
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > max) {
-        await reader.cancel();
-        return null;
-      }
-      chunks.push(value);
-    }
-    return Buffer.concat(chunks, total);
-  } finally {
-    reader.releaseLock();
-  }
-}
 
 async function readGmail(token: string, id: string): Promise<OAuthMail> {
   const url = `${gmailApi}/messages/${encodeURIComponent(id)}?format=raw`;

@@ -90,6 +90,7 @@ export type MailRefreshResult = {
   hasMore: boolean;
   lastSyncAt: string | null;
   error?: string;
+  requiresReauthorization?: boolean;
 };
 
 export type BootstrapPayload = {

@@ -2347,7 +2347,7 @@ textarea:focus-visible {
   border-top: 1px solid var(--line);
 }
 
-.mailbox-connect-providers button {
+.mailbox-connect-option {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2358,10 +2358,13 @@ textarea:focus-visible {
   border: 0;
   border-radius: 8px;
   text-align: left;
+}
+
+button.mailbox-connect-option {
   cursor: pointer;
 }
 
-.mailbox-connect-providers button:hover {
+button.mailbox-connect-option:hover {
   background: var(--surface-soft);
 }
 
@@ -2369,7 +2372,7 @@ textarea:focus-visible {
   outline-offset: -3px;
 }
 
-.mailbox-connect-providers button > span:first-child {
+.mailbox-connect-option > span:first-child {
   flex: 1;
 }
 
@@ -2414,8 +2417,7 @@ textarea:focus-visible {
   gap: 16px;
 }
 
-.mailbox-connect-body p a,
-.mailbox-connect-details a {
+.mailbox-connect-body p a {
   color: var(--teal-strong);
   text-underline-offset: 3px;
 }
@@ -2430,36 +2432,6 @@ textarea:focus-visible {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.mailbox-connect-actions a.button {
-  text-decoration: none;
-}
-
-.mailbox-connect-details {
-  padding: 10px 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 13px;
-}
-
-.mailbox-connect-details summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.mailbox-connect-details p {
-  margin-top: 8px;
-}
-
-.mailbox-connect-details dt {
-  font-weight: 600;
-}
-
-.mailbox-connect-details dd {
-  margin: 2px 0 10px;
-  overflow-wrap: anywhere;
 }
 
 .mailbox-connect-error {

@@ -7,7 +7,8 @@ import { formatDate } from '../format';
 export type MailboxConnectionResult = {
   provider: MailProvider;
   accountId?: string;
-  status: 'connected' | 'cancelled' | 'failed';
+  status: 'saved' | 'connected' | 'sync_failed' | 'cancelled' | 'failed';
+  requiresReauthorization?: boolean;
   message?: string;
 };
 
@@ -20,7 +21,8 @@ type Props = {
   onConnectOpen: (open: boolean) => void;
   connectionResult: MailboxConnectionResult | null;
   onDismissResult: () => void;
-  onRecheck: () => Promise<void>;
+  onOpenInbox: () => void;
+  onSyncConnection: (provider: OAuthProvider, accountId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onAuthorize: (provider: OAuthProvider, accountId?: string) => Promise<void>;
   onSave: (input: { email: string; authorizationCode: string }) => Promise<void>;
@@ -35,26 +37,7 @@ const providerDetails: Record<MailProvider, string> = {
   netease163: '个人 @163.com 邮箱',
 };
 
-const oauthSetup = {
-  gmail: {
-    brand: 'Google',
-    console: 'Google Cloud',
-    url: 'https://console.cloud.google.com/auth/overview',
-    docs: 'https://developers.google.com/identity/protocols/oauth2/web-server',
-    instructions: '启用 Gmail API，创建 Web 应用类型的 OAuth 客户端。测试模式下，把要接入的邮箱加入测试用户。',
-    permissions: 'gmail.readonly、gmail.send',
-    prefix: 'GMAIL',
-  },
-  outlook: {
-    brand: 'Microsoft',
-    console: 'Microsoft Entra',
-    url: 'https://entra.microsoft.com/',
-    docs: 'https://learn.microsoft.com/zh-cn/entra/identity-platform/quickstart-register-app',
-    instructions: '在能注册应用的目录里创建 Web 应用。接入个人 Outlook 时，账号类型需包含个人 Microsoft 账号。',
-    permissions: 'User.Read、Mail.Read、Mail.Send（委托权限）',
-    prefix: 'OUTLOOK',
-  },
-} as const;
+const oauthBrand = { gmail: 'Google', outlook: 'Microsoft' } as const;
 
 const imapSetup = {
   qq: {
@@ -79,12 +62,27 @@ function isOAuth(provider: MailProvider): provider is OAuthProvider {
 
 export function ConnectedMailboxes({
   accounts, results, refreshing, oauthProviders, connectOpen, onConnectOpen, connectionResult, onDismissResult,
-  onRecheck, onRefresh, onAuthorize, onSave,
+  onOpenInbox, onSyncConnection, onRefresh, onAuthorize, onSave,
 }: Props) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const select = (value: Selection | null) => {
     setSelection(value);
     onConnectOpen(true);
+  };
+
+  const outcomeLabels = {
+    saved: ' 已保存', connected: ' 已连接', sync_failed: ' 已授权，邮件尚未同步', cancelled: ' 授权已取消', failed: ' 连接失败',
+  };
+  const retryConnection = () => {
+    if (!connectionResult) return;
+    const { provider, accountId, status, requiresReauthorization } = connectionResult;
+    if (status === 'connected') onOpenInbox();
+    else if (status === 'saved') void onRefresh().then(onDismissResult);
+    else if (status === 'sync_failed' && !requiresReauthorization && accountId && isOAuth(provider)) {
+      void onSyncConnection(provider, accountId);
+    } else {
+      select({ provider, account: accounts.find((account) => account.id === accountId && account.provider === provider) });
+    }
   };
 
   return (
@@ -97,22 +95,16 @@ export function ConnectedMailboxes({
         <div className="mailbox-connection-result">
           <div className="mailbox-connection-result__copy" role="status">
             <strong>
-              {names[connectionResult.provider]}{connectionResult.status === 'connected'
-                ? ' 已连接' : connectionResult.status === 'cancelled' ? ' 授权已取消' : ' 连接失败'}
+              {names[connectionResult.provider]}{outcomeLabels[connectionResult.status]}
             </strong>
-            <p>{connectionResult.message ?? (connectionResult.status === 'connected'
+            <p>{connectionResult.message ?? (connectionResult.status === 'saved'
               ? '现在可以同步邮件。' : '准备好后，可以重新打开服务商授权页。')}</p>
           </div>
-          <button className="button button--secondary" type="button" disabled={refreshing}
-            onClick={() => {
-              if (connectionResult.status === 'connected') void onRefresh().then(onDismissResult);
-              else select({
-                provider: connectionResult.provider,
-                account: accounts.find(({ id, provider }) => id === connectionResult.accountId && provider === connectionResult.provider),
-              });
-            }}
-          >
-            {connectionResult.status === 'connected' ? (refreshing ? '正在同步…' : '同步邮件') : '重新连接'}
+          <button className="button button--secondary" type="button" disabled={refreshing} onClick={retryConnection}>
+            {connectionResult.status === 'connected' ? '查看收件箱' : refreshing ? '正在同步…'
+              : connectionResult.status === 'saved' ? '同步邮件'
+                : connectionResult.status === 'sync_failed' && !connectionResult.requiresReauthorization ? '重试同步'
+                  : '重新授权'}
           </button>
           <button className="icon-button" type="button" aria-label="关闭连接提示" onClick={onDismissResult}><X size={16} /></button>
         </div>
@@ -148,20 +140,20 @@ export function ConnectedMailboxes({
         <ConnectDialog
           selection={selection} oauthProviders={oauthProviders} onSelect={setSelection}
           onClose={() => { setSelection(null); onConnectOpen(false); }} onAuthorize={onAuthorize}
-          onRecheck={onRecheck} onSave={onSave}
+          onSave={onSave}
         />
       ) : null}
     </section>
   );
 }
 
-type DialogProps = Pick<Props, 'oauthProviders' | 'onAuthorize' | 'onRecheck' | 'onSave'> & {
+type DialogProps = Pick<Props, 'oauthProviders' | 'onAuthorize' | 'onSave'> & {
   selection: Selection | null;
   onSelect: (selection: Selection | null) => void;
   onClose: () => void;
 };
 
-function ConnectDialog({ selection, oauthProviders, onSelect, onClose, onAuthorize, onRecheck, onSave }: DialogProps) {
+function ConnectDialog({ selection, oauthProviders, onSelect, onClose, onAuthorize, onSave }: DialogProps) {
   const stepRef = useRef<HTMLDivElement>(null);
   const step = selection?.provider;
   useEffect(() => { stepRef.current?.focus(); }, [step]);
@@ -182,7 +174,7 @@ function ConnectDialog({ selection, oauthProviders, onSelect, onClose, onAuthori
           {isOAuth(provider) ? (
             <OAuthSetup
               key={provider} provider={provider} ready={oauthProviders.includes(provider)}
-              accountId={selection?.account?.id} onAuthorize={onAuthorize} onRecheck={onRecheck}
+              accountId={selection?.account?.id} onAuthorize={onAuthorize}
             />
           ) : (
             <ImapSetup key={provider} provider={provider} address={selection?.account?.address} onSave={onSave} onClose={onClose} />
@@ -192,15 +184,23 @@ function ConnectDialog({ selection, oauthProviders, onSelect, onClose, onAuthori
         <div ref={stepRef} tabIndex={-1} className="mailbox-connect-step" role="group" aria-label="选择邮箱服务商">
           <p className="mailbox-connect-note">选择你想接入的邮箱。</p>
           <ul className="mailbox-connect-providers">
-            {providers.map((option) => (
-              <li key={option}>
-                <button type="button" onClick={() => onSelect({ provider: option })}>
-                  <span><strong>{names[option]}</strong><small>{providerDetails[option]}</small></span>
-                  {isOAuth(option) && !oauthProviders.includes(option) ? <span className="mailbox-connect-pending">待配置</span> : null}
-                  <ChevronRight size={17} aria-hidden="true" />
-                </button>
-              </li>
-            ))}
+            {providers.map((option) => {
+              const available = !isOAuth(option) || oauthProviders.includes(option);
+              const label = <span><strong>{names[option]}</strong><small>{providerDetails[option]}</small></span>;
+              return (
+                <li key={option}>
+                  {available ? (
+                    <button className="mailbox-connect-option" type="button" onClick={() => onSelect({ provider: option })}>
+                      {label}<ChevronRight size={17} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <div className="mailbox-connect-option">
+                      {label}<span className="mailbox-connect-pending">暂不可用</span>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -209,21 +209,16 @@ function ConnectDialog({ selection, oauthProviders, onSelect, onClose, onAuthori
 }
 
 function OAuthSetup({
-  provider, ready, accountId, onAuthorize, onRecheck,
-}: Pick<Props, 'onAuthorize' | 'onRecheck'> & { provider: OAuthProvider; ready: boolean; accountId?: string }) {
-  const config = oauthSetup[provider];
+  provider, ready, accountId, onAuthorize,
+}: Pick<Props, 'onAuthorize'> & { provider: OAuthProvider; ready: boolean; accountId?: string }) {
+  const brand = oauthBrand[provider];
   const [pending, setPending] = useState(false);
-  const [checked, setChecked] = useState(false);
   const [error, setError] = useState('');
   const proceed = async () => {
     setPending(true);
     setError('');
     try {
-      if (ready) await onAuthorize(provider, accountId);
-      else {
-        await onRecheck();
-        setChecked(true);
-      }
+      await onAuthorize(provider, accountId);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '暂时无法继续，请再试一次。');
     } finally {
@@ -231,45 +226,15 @@ function OAuthSetup({
     }
   };
 
+  if (!ready) return <p>{names[provider]} 暂不可用，请联系站点维护者。</p>;
   return (
     <div className="mailbox-connect-body">
-      {ready ? (
-        <p>在 {config.brand} 页面选择要接入的邮箱，并允许 Mailbox Vault 读取和发送邮件。授权后会回到这里。</p>
-      ) : (
-        <>
-          <p><strong>{names[provider]} 尚未启用。</strong> 先在 {config.console} 设置 Mailbox Vault 的 OAuth 应用，再回到这里检查。</p>
-          <details className="mailbox-connect-details">
-            <summary>查看应用配置</summary>
-            <p>{config.instructions}</p>
-            <dl>
-              <dt>Web 回调地址</dt>
-              <dd><code>{new URL(`/api/oauth/${provider}/callback`, window.location.origin).href}</code></dd>
-              <dt>邮件权限</dt>
-              <dd>{config.permissions}</dd>
-              <dt>Cloudflare Worker 密钥名称</dt>
-              <dd><code>{config.prefix}_CLIENT_ID</code> 和 <code>{config.prefix}_CLIENT_SECRET</code></dd>
-            </dl>
-            <a href={config.docs} target="_blank" rel="noreferrer">查看官方配置说明 <ArrowUpRight size={14} aria-hidden="true" /></a>
-          </details>
-        </>
-      )}
+      <p>在 {brand} 页面选择要接入的邮箱，并允许 Mailbox Vault 读取和发送邮件。授权后会自动同步。</p>
       {error ? <p role="alert" className="mailbox-connect-error">{error}</p> : null}
-      {!ready && checked && !error ? <p role="status" className="mailbox-connect-note">仍未检测到配置。保存 Worker 密钥后再试。</p> : null}
       <div className="mailbox-connect-actions">
-        {ready ? (
-          <button className="button button--primary" type="button" disabled={pending} onClick={() => void proceed()}>
-            {pending ? '正在打开授权页…' : `使用 ${config.brand} 继续`}
-          </button>
-        ) : (
-          <>
-            <a className="button button--primary" href={config.url} target="_blank" rel="noreferrer">
-              打开 {config.console} <ArrowUpRight size={15} aria-hidden="true" />
-            </a>
-            <button className="button button--secondary" type="button" disabled={pending} onClick={() => void proceed()}>
-              {pending ? '正在检查…' : '重新检查'}
-            </button>
-          </>
-        )}
+        <button className="button button--primary" type="button" disabled={pending} onClick={() => void proceed()}>
+          {pending ? '正在打开授权页…' : `使用 ${brand} 继续`}
+        </button>
       </div>
     </div>
   );

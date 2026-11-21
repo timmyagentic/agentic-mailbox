@@ -212,8 +212,8 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   if (isOAuthProvider(finishProvider) && request.method === 'POST') {
     assertSameOrigin(request);
     const body = await readJson<{ state?: unknown; code?: unknown; error?: unknown }>(request);
-    await finishOAuth(env, request, finishProvider, body);
-    return json({ ok: true });
+    const accountId = await finishOAuth(env, request, finishProvider, body);
+    return json({ ok: true, accountId });
   }
 
   if (pathname === '/api/bootstrap' && request.method === 'GET') {

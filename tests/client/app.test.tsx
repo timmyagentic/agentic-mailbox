@@ -163,39 +163,60 @@ it('can sign in with a device certificate without entering a password', async ()
   expect(mailboxApi.login).not.toHaveBeenCalled();
 });
 
-it('offers the first sync from the page after a successful OAuth callback', async () => {
+it('syncs only the authorized mailbox automatically before reporting success', async () => {
   const account = { id: 'new-outlook', address: 'owner@outlook.com', provider: 'outlook' as const, lastSyncAt: null };
   vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts: [account], oauthProviders: ['outlook'] });
-  vi.mocked(mailboxApi.finishMailOAuth).mockResolvedValue({ ok: true });
-  vi.mocked(mailboxApi.refreshMailAccount).mockResolvedValue({
-    result: { id: account.id, imported: 1, oversized: 0, hasMore: false, lastSyncAt: null },
-  });
+  vi.mocked(mailboxApi.finishMailOAuth).mockResolvedValue({ ok: true, accountId: account.id });
+  let finishSync!: (value: Awaited<ReturnType<typeof mailboxApi.refreshMailAccount>>) => void;
+  vi.mocked(mailboxApi.refreshMailAccount).mockReturnValue(new Promise((resolve) => { finishSync = resolve; }));
   window.history.replaceState(null, '', '/#mailOAuth=outlook&state=state-fixture&code=authorization-fixture');
   render(<App />);
-  expect(await screen.findByText('Outlook 已连接')).toBeTruthy();
+  await screen.findByText('正在同步 Outlook 邮件…');
+  expect(screen.queryByText('Outlook 已连接')).toBeNull();
   expect(window.location.hash).toBe('');
   expect(mailboxApi.finishMailOAuth).toHaveBeenCalledExactlyOnceWith('outlook', {
     state: 'state-fixture', code: 'authorization-fixture', error: null,
   });
-  fireEvent.click(screen.getByRole('button', { name: '同步邮件' }));
-  await waitFor(() => expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith(account.id));
-  await screen.findByText('同步了 1 封邮件。');
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledExactlyOnceWith(account.id);
+  finishSync({ result: { id: account.id, imported: 1, oversized: 0, hasMore: false, lastSyncAt: null } });
+  await screen.findByText('Outlook 已连接');
+  expect(screen.getByText('已同步 1 封邮件。')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '查看收件箱' }));
+  await screen.findByRole('heading', { name: '收件箱' });
 });
 
-it('shows provider setup instead of a disabled OAuth button and rechecks readiness in the same dialog', async () => {
+it('keeps an authorized account when Gmail rejects its first sync and retries only syncing', async () => {
+  const account = { id: 'new-gmail', address: 'owner@gmail.com', provider: 'gmail' as const, lastSyncAt: null };
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts: [account], oauthProviders: ['gmail'] });
+  vi.mocked(mailboxApi.finishMailOAuth).mockResolvedValue({ ok: true, accountId: account.id });
+  const result = { id: account.id, imported: 0, oversized: 0, hasMore: false, lastSyncAt: null };
+  vi.mocked(mailboxApi.refreshMailAccount)
+    .mockResolvedValueOnce({ result: { ...result, error: 'Gmail API 尚未启用，请联系站点维护者。' } })
+    .mockResolvedValueOnce({ result: { ...result, imported: 2 } });
+  window.history.replaceState(null, '', '/#mailOAuth=gmail&state=state-fixture&code=authorization-fixture');
+  render(<App />);
+  await screen.findByText('Gmail 已授权，邮件尚未同步');
+  expect(screen.queryByText('Gmail 已连接')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
+  await screen.findByText('Gmail 已连接');
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledTimes(2);
+  expect(mailboxApi.finishMailOAuth).toHaveBeenCalledTimes(1);
+  expect(mailboxApi.startMailOAuth).not.toHaveBeenCalled();
+});
+
+it('keeps setup out of the add dialog and offers OAuth only for configured providers', async () => {
   vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [] });
-  vi.mocked(mailboxApi.bootstrap).mockResolvedValueOnce(bootstrap)
-    .mockResolvedValue({ ...bootstrap, oauthProviders: ['gmail'] });
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, oauthProviders: ['gmail'] });
   render(<App />);
   fireEvent.click(await screen.findByRole('button', { name: '接入邮箱' }));
   const dialog = screen.getByRole('dialog', { name: '接入邮箱' });
+  expect(within(dialog).getByText('Outlook')).toBeTruthy();
+  expect(within(dialog).getByText('暂不可用')).toBeTruthy();
+  expect(within(dialog).queryByRole('button', { name: /Outlook/ })).toBeNull();
+  expect(within(dialog).queryByText(/Google Cloud|Microsoft Entra/)).toBeNull();
   fireEvent.click(within(dialog).getByRole('button', { name: /Gmail/ }));
-  expect(within(dialog).getByText('Gmail 尚未启用。')).toBeTruthy();
-  expect(within(dialog).getByRole('link', { name: '打开 Google Cloud' }).getAttribute('href')).toContain('console.cloud.google.com');
+  expect(within(dialog).getByRole('button', { name: '使用 Google 继续' })).toBeTruthy();
   expect(within(dialog).queryByLabelText('客户端授权码')).toBeNull();
-  fireEvent.click(within(dialog).getByRole('button', { name: '重新检查' }));
-  expect(await within(dialog).findByRole('button', { name: '使用 Google 继续' })).toBeTruthy();
-  expect(mailboxApi.startMailOAuth).not.toHaveBeenCalled();
 });
 
 it('retries a cancelled reauthorization for the original account', async () => {
@@ -207,7 +228,7 @@ it('retries a cancelled reauthorization for the original account', async () => {
   window.history.replaceState(null, '', '/#mailOAuth=outlook&state=state-fixture&error=access_denied');
   render(<App />);
   await screen.findByText('Outlook 授权已取消');
-  fireEvent.click(screen.getByRole('button', { name: '重新连接' }));
+  fireEvent.click(screen.getByRole('button', { name: '重新授权' }));
   const dialog = screen.getByRole('dialog', { name: '重新授权 Outlook' });
   fireEvent.click(within(dialog).getByRole('button', { name: '使用 Microsoft 继续' }));
   expect(within(dialog).getByText(account.address)).toBeTruthy();
@@ -235,7 +256,7 @@ it('shows the selected IMAP guide and only saves an address for that provider', 
   expect(mailboxApi.saveMailAccount).not.toHaveBeenCalled();
   fireEvent.change(within(dialog).getByLabelText('邮箱地址'), { target: { value: 'owner@foxmail.com' } });
   fireEvent.click(within(dialog).getByRole('button', { name: '连接邮箱' }));
-  await screen.findByText('QQ 邮箱 已连接');
+  await screen.findByText('QQ 邮箱 已保存');
   expect(mailboxApi.saveMailAccount).toHaveBeenCalledExactlyOnceWith({
     email: 'owner@foxmail.com', authorizationCode: 'ABCDEFGHIJKLMNOP',
   });

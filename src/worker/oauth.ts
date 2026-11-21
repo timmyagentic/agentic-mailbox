@@ -3,7 +3,7 @@ import type { OAuthProvider } from '../shared/types';
 import { normalizeAddress } from '../shared/validation';
 import { openCredential, sealCredential } from './account-credentials';
 import { readCookie, SESSION_COOKIE } from './auth';
-import { HttpError } from './http';
+import { boundedBody, HttpError } from './http';
 import type { Env } from './types';
 
 const googleScopes = 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
@@ -144,8 +144,29 @@ async function requestTokens(env: Env, provider: OAuthProvider, params: Record<s
   return { accessToken: result.access_token, refreshToken, expiresAt: Date.now() + Number(result.expires_in) * 1000 };
 }
 
+type GmailErrorReason = 'service_disabled' | 'insufficient_scope' | 'domain_policy' | 'rate_limited';
+
+async function gmailErrorReason(response: Response): Promise<GmailErrorReason | undefined> {
+  try {
+    const raw = await boundedBody(response, 16_384);
+    if (!raw) return;
+    type Failure = { error?: { errors?: { reason: string }[]; details?: { reason?: string }[] } };
+    const data = JSON.parse(raw.toString('utf8')) as Failure | null;
+    const reasons = new Set([
+      ...(data?.error?.errors?.map(({ reason }) => reason) ?? []),
+      ...(data?.error?.details?.map(({ reason }) => reason) ?? []),
+    ]);
+    if (reasons.has('SERVICE_DISABLED') || reasons.has('accessNotConfigured')) return 'service_disabled';
+    if (reasons.has('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || reasons.has('insufficientPermissions')) return 'insufficient_scope';
+    if (reasons.has('domainPolicy')) return 'domain_policy';
+    if (['rateLimitExceeded', 'userRateLimitExceeded', 'dailyLimitExceeded'].some((reason) => reasons.has(reason))) return 'rate_limited';
+  } catch {
+    // Keep the HTTP status when the provider error body cannot be read.
+  }
+}
+
 export class MailProviderError extends Error {
-  constructor(readonly status: number) { super('邮箱服务商暂时无法完成请求。'); }
+  constructor(readonly status: number, readonly reason?: GmailErrorReason) { super('邮箱服务商暂时无法完成请求。'); }
 }
 
 export async function mailProviderFetch(url: string, token: string, options: RequestInit = {}) {
@@ -155,8 +176,10 @@ export async function mailProviderFetch(url: string, token: string, options: Req
     ...options, headers, redirect: 'manual', signal: AbortSignal.timeout(12_000),
   });
   if (!response.ok) {
-    await response.body?.cancel();
-    throw new MailProviderError(response.status);
+    const reason = url.startsWith(`${gmailApi}/`) && response.status === 403
+      ? await gmailErrorReason(response) : undefined;
+    await response.body?.cancel().catch(() => {});
+    throw new MailProviderError(response.status, reason);
   }
   return response;
 }
@@ -214,7 +237,7 @@ export async function finishOAuth(
     const result = await env.DB.prepare('UPDATE oauth_accounts SET credential = ?1 WHERE id = ?2 AND sync_until <= ?3')
       .bind(credential, existing.id, Date.now()).run();
     if (!result.meta.changes) throw new HttpError(409, 'mail_sync_in_progress', '邮箱正在同步，请稍后重新授权。');
-    return;
+    return existing.id;
   }
   const id = crypto.randomUUID();
   const [local, domain] = address.split('@');
@@ -232,6 +255,7 @@ export async function finishOAuth(
     }
     throw failure;
   }
+  return id;
 }
 
 export async function oauthAccessToken(env: Env, account: { id: string; provider: OAuthProvider; address: string; credential: string }) {

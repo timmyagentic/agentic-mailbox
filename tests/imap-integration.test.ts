@@ -473,6 +473,7 @@ describe('Gmail and Outlook mailbox OAuth', () => {
     let gmailNew = false;
     let outlookNew = false;
     let sendStatus = 0;
+    let gmailProfileFailure: { status: number; reason: string } | null = null;
 
     const fetchFixture = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, options) => {
       const url = new URL(String(input));
@@ -512,7 +513,12 @@ describe('Gmail and Outlook mailbox OAuth', () => {
           accepted.push({ path: url.pathname, raw: Buffer.from(payload.raw, 'base64url').toString(), threadId: payload.threadId });
           return Response.json({ id: 'gmail-accepted' });
         }
-        if (url.pathname.endsWith('/profile')) return Response.json({ historyId: '100' });
+        if (url.pathname.endsWith('/profile')) {
+          if (gmailProfileFailure) return Response.json({ error: {
+            message: 'provider-only detail', details: [{ reason: gmailProfileFailure.reason }],
+          } }, { status: gmailProfileFailure.status });
+          return Response.json({ historyId: '100' });
+        }
         if (url.pathname.endsWith('/messages')) return Response.json({ messages: [{ id: 'g-one' }] });
         if (url.pathname.endsWith('/history')) {
           const initial = url.searchParams.get('startHistoryId') === '100';
@@ -569,7 +575,9 @@ describe('Gmail and Outlook mailbox OAuth', () => {
       expect(otherSession).not.toBe(cookie);
       expect((await request('/api/oauth/gmail/finish', 'POST', google, otherSession)).status).toBe(400);
       expect((await request('/api/oauth/outlook/finish', 'POST', google)).status).toBe(400);
-      expect((await request('/api/oauth/gmail/finish', 'POST', google)).status).toBe(200);
+      const googleFinished = await request('/api/oauth/gmail/finish', 'POST', google);
+      expect(googleFinished.status).toBe(200);
+      const googleResult = await googleFinished.json() as { accountId: string };
       expect((await request('/api/oauth/gmail/finish', 'POST', google)).status).toBe(400);
       const microsoft = await start('outlook', 'good-microsoft');
       expect((await request('/api/oauth/outlook/finish', 'POST', microsoft)).status).toBe(200);
@@ -577,6 +585,7 @@ describe('Gmail and Outlook mailbox OAuth', () => {
       const bootstrap = await (await request('/api/bootstrap')).json() as BootstrapPayload;
       const googleAccount = bootstrap.mailAccounts.find(({ provider }) => provider === 'gmail');
       const outlookAccount = bootstrap.mailAccounts.find(({ provider }) => provider === 'outlook');
+      expect(googleResult.accountId).toBe(googleAccount?.id);
       const accounts = bootstrap.mailAccounts.filter(({ address }) => address.startsWith('owner@'));
       expect(accounts.map(({ provider }) => provider).sort()).toEqual(['gmail', 'netease163', 'outlook', 'qq']);
       expect(bootstrap.oauthProviders).toEqual(['gmail', 'outlook']);
@@ -588,6 +597,20 @@ describe('Gmail and Outlook mailbox OAuth', () => {
 
       const wrong = await start('gmail', 'wrong-account', googleAccount?.id);
       expect((await request('/api/oauth/gmail/finish', 'POST', wrong)).status).toBe(409);
+      for (const [status, reason, requiresReauthorization, message] of [
+        [403, 'SERVICE_DISABLED', false, 'Gmail API 尚未启用'],
+        [403, 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', true, '缺少读取邮件的权限'],
+        [403, 'opaque-private-detail', false, '邮箱服务商拒绝了读取请求'],
+        [401, 'unauthenticated', true, '邮箱授权已失效'],
+      ] as const) {
+        gmailProfileFailure = { status, reason };
+        const response = await request(`/api/mail-accounts/${googleResult.accountId}/refresh`, 'POST');
+        const { result } = await response.json() as { result: MailRefreshResult };
+        expect(result).toMatchObject({ imported: 0, lastSyncAt: null, requiresReauthorization });
+        expect(result.error).toContain(message);
+        expect(result.error).not.toContain('provider-only detail');
+      }
+      gmailProfileFailure = null;
       const refresh = async () => Promise.all(accounts.map(async ({ id }) => {
         const response = await request(`/api/mail-accounts/${id}/refresh`, 'POST');
         expect(response.status).toBe(200);

@@ -3,6 +3,7 @@ import { normalizeAddress } from '../shared/validation';
 import { openCredential, sealCredential } from './account-credentials';
 import { HttpError } from './http';
 import { imapRefreshError, withImapInbox } from './imap';
+import { logEvent } from './logging';
 import { storeConnectedMail } from './mail';
 import { isOAuthProvider, MailProviderError, oauthAccessToken } from './oauth';
 import { loadOAuthInbox, readOAuthMail } from './oauth-inbox';
@@ -24,6 +25,13 @@ type SyncRow = AccountRow & {
 const accountSelect = `SELECT c.id, c.provider, a.address, c.last_sync_at
   FROM imap_accounts c JOIN aliases a ON a.id = c.id`;
 const oauthSelect = `SELECT c.id, c.provider, a.address, c.last_sync_at FROM oauth_accounts c JOIN aliases a ON a.id = c.id`;
+const providerSyncMessages = {
+  service_disabled: 'Gmail API 尚未启用，请联系站点维护者。',
+  insufficient_scope: '缺少读取邮件的权限，请重新授权。',
+  domain_policy: 'Google 账号所属组织限制了邮箱访问，请联系组织管理员。',
+  rate_limited: 'Gmail 同步请求过多，请稍后重试。',
+} as const;
+
 const syncLeaseMs = 90_000;
 
 function mapAccount(row: AccountRow): MailAccount {
@@ -166,12 +174,14 @@ async function refreshOAuthAccount(env: Env, id: string): Promise<MailRefreshRes
   let imported = 0;
   let oversized = 0;
   let lastSyncAt: string | null = null;
+  let provider: OAuthProvider | undefined;
   try {
     const account = await env.DB.prepare(`SELECT a.address, a.status, c.id, c.provider, c.credential, c.cursor, c.last_sync_at
       FROM oauth_accounts c JOIN aliases a ON a.id = c.id WHERE c.id = ?1 AND c.sync_id = ?2`)
       .bind(id, syncId).first<AccountRow & { provider: OAuthProvider; credential: string; cursor: string | null; status: string }>();
     if (!account) throw new Error('Unable to load synchronized account');
     lastSyncAt = account.last_sync_at;
+    provider = account.provider;
     if (account.status !== 'active') throw new HttpError(409, 'mail_account_disabled', '这个邮箱已停用。');
     const token = await oauthAccessToken(env, account);
     const page = await loadOAuthInbox(account.provider, token, account.cursor, lastSyncAt);
@@ -197,11 +207,17 @@ async function refreshOAuthAccount(env: Env, id: string): Promise<MailRefreshRes
     if (!updated.meta.changes) throw new Error('Mail sync lease expired');
     return { id, imported, oversized, hasMore, lastSyncAt: syncedAt };
   } catch (error) {
-    const message = error instanceof HttpError ? error.message
-      : error instanceof MailProviderError && [401, 403].includes(error.status)
-        ? '邮箱授权不可用，请重新授权并允许读取邮件。'
-        : '无法同步此邮箱，请稍后刷新。';
-    return { id, imported, oversized, hasMore: false, lastSyncAt, error: message };
+    const upstream = error instanceof MailProviderError ? error : undefined;
+    const known = error instanceof HttpError ? error : undefined;
+    const requiresReauthorization = upstream?.status === 401 || upstream?.reason === 'insufficient_scope'
+      || known?.code === 'oauth_reconnect_required' || known?.code === 'oauth_scope_missing';
+    const message = known?.message ?? (upstream?.reason ? providerSyncMessages[upstream.reason]
+      : upstream?.status === 401 ? '邮箱授权已失效，请重新授权。'
+        : upstream?.status === 403 ? '邮箱服务商拒绝了读取请求，请联系站点维护者。'
+          : '无法同步此邮箱，请稍后刷新。');
+    if (provider) logEvent('warn', { event: 'oauth_sync_failed', provider,
+      status: upstream?.status ?? known?.status, reason: upstream?.reason ?? known?.code });
+    return { id, imported, oversized, hasMore: false, lastSyncAt, error: message, requiresReauthorization };
   } finally {
     await env.DB.prepare('UPDATE oauth_accounts SET sync_id = NULL, sync_until = 0 WHERE id = ?1 AND sync_id = ?2')
       .bind(id, syncId).run();

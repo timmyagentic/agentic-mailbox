@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import type { ApiErrorPayload } from '../shared/types';
 
 export class HttpError extends Error {
@@ -79,4 +80,30 @@ export function withSecurityHeaders(response: Response): Response {
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
   );
   return secured;
+}
+
+export async function boundedBody(response: Response, max: number) {
+  if (Number(response.headers.get('Content-Length')) > max) {
+    await response.body?.cancel();
+    return null;
+  }
+  if (!response.body) throw new Error('Missing provider payload');
+  const chunks: Uint8Array[] = [];
+  const reader = response.body.getReader();
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    reader.releaseLock();
+  }
 }

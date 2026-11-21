@@ -43,6 +43,7 @@ type Toast = { type: 'success' | 'error'; message: string } | null;
 
 export default function App() {
   const [checkingSession, setCheckingSession] = useState(true);
+  const [connectingProvider, setConnectingProvider] = useState<OAuthProvider | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -83,6 +84,32 @@ export default function App() {
     setFiles(filePayload.files);
   }, []);
 
+  const syncConnection = useCallback(async (provider: OAuthProvider, accountId: string) => {
+    setRefreshing(true);
+    try {
+      const { result } = await mailboxApi.refreshMailAccount(accountId);
+      setRefreshResults((current) => [...current.filter(({ id }) => id !== accountId), result]);
+      if (result.error) {
+        setConnectionResult({ provider, accountId, status: 'sync_failed', message: result.error,
+          requiresReauthorization: result.requiresReauthorization });
+      } else {
+        const summary = result.imported > 0 ? `已同步 ${result.imported} 封邮件。` : '邮箱可用，目前暂无新邮件。';
+        setConnectionResult({ provider, status: 'connected',
+          message: result.hasMore ? `${summary}还有邮件待同步，可继续刷新。` : summary });
+      }
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        showError(error);
+        return;
+      }
+      setConnectionResult({ provider, accountId, status: 'sync_failed',
+        message: error instanceof Error ? error.message : '暂时无法同步，请重试。' });
+    } finally {
+      setRefreshing(false);
+    }
+    await loadData().catch(showError);
+  }, [loadData, showError]);
+
   useEffect(() => {
     let active = true;
     void mailboxApi
@@ -98,10 +125,12 @@ export default function App() {
           const accountId = takeReconnectTarget(provider);
           if (session.authenticated) {
             try {
-              await mailboxApi.finishMailOAuth(provider, {
+              const { accountId: syncedId } = await mailboxApi.finishMailOAuth(provider, {
                 state: callback.get('state'), code: callback.get('code'), error: callback.get('error'),
               });
-              setConnectionResult({ provider, status: 'connected' });
+              setConnectingProvider(provider);
+              await syncConnection(provider, syncedId);
+              return;
             } catch (error) {
               if (error instanceof ApiRequestError && error.status === 401) {
                 showError(error);
@@ -122,7 +151,7 @@ export default function App() {
       .catch((error) => { if (active) showError(error); })
       .finally(() => { if (active) setCheckingSession(false); });
     return () => { active = false; };
-  }, [loadData, showError]);
+  }, [loadData, showError, syncConnection]);
 
   useEffect(() => {
     if (!toast) return;
@@ -214,7 +243,7 @@ export default function App() {
           .sort((a, b) => a.address.localeCompare(b.address)),
       } : current);
       setRefreshResults((current) => current.filter(({ id }) => id !== account.id));
-      setConnectionResult({ provider: account.provider, status: 'connected' });
+      setConnectionResult({ provider: account.provider, status: 'saved' });
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) showError(error);
       throw error;
@@ -280,7 +309,9 @@ export default function App() {
   if (checkingSession) {
     return (
       <main className="boot-screen">
-        <div className="brand-loader"><span className="spinner" /><strong>Mailbox Vault</strong></div>
+        <div className="brand-loader" role="status"><span className="spinner" /><strong>
+          {connectingProvider ? `正在同步 ${connectingProvider === 'gmail' ? 'Gmail' : 'Outlook'} 邮件…` : 'Mailbox Vault'}
+        </strong></div>
       </main>
     );
   }
@@ -337,7 +368,8 @@ export default function App() {
               <ConnectedMailboxes accounts={accounts} results={refreshResults} refreshing={refreshing}
                 oauthProviders={bootstrap?.oauthProviders ?? []} connectOpen={connectOpen} onConnectOpen={setConnectOpen}
                 connectionResult={connectionResult} onDismissResult={() => setConnectionResult(null)}
-                onRefresh={refresh} onRecheck={loadData} onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
+                onRefresh={refresh} onSyncConnection={syncConnection} onOpenInbox={() => { setConnectionResult(null); navigate('inbox'); }}
+                onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
               <AliasesView
                 aliases={aliases}
                 primaryDomain={primaryDomain}

@@ -5,6 +5,7 @@ export type IngestStage = 'recipient' | 'alias_lookup' | 'parse' | 'deduplicate'
 
 type DiagnosticEvent =
   | { event: 'http_request'; requestId: string; route: string; method: string; status: number; code?: string; durationMs: number }
+  | { event: 'oauth_sync_failed'; provider: 'gmail' | 'outlook'; status?: number; reason?: string }
   | { event: 'email_rejected'; processingId: string; reason: 'unmanaged_domain' | 'unregistered_or_disabled'; durationMs: number }
   | { event: 'email_duplicate'; processingId: string; aliasId: string; durationMs: number }
   | { event: 'email_ingested'; processingId: string; emailId: string; aliasId: string; attachmentCount: number; rawSize: number; forwarding: 'disabled' | 'succeeded' | 'failed'; durationMs: number }

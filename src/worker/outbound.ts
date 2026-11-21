@@ -79,9 +79,11 @@ async function deliverOAuth(delivery: Delivery, sender: Extract<Sender, { access
     await response.body?.cancel().catch(() => {});
     return { messageId: delivery.messageId, rejected: [] as string[] };
   } catch (error) {
-    const status = error instanceof MailProviderError ? error.status : 0;
-    const message = [401, 403].includes(status)
-      ? '邮箱服务商拒绝了发信授权，请重新授权并允许发送邮件。'
+    const upstream = error instanceof MailProviderError ? error : undefined;
+    const status = upstream?.status ?? 0;
+    const message = upstream?.reason === 'service_disabled' ? 'Gmail API 尚未启用，请联系站点维护者。'
+      : status === 401 || upstream?.reason === 'insufficient_scope' ? '请重新授权并允许发送邮件。'
+      : status === 403 ? '邮箱服务商拒绝了发信请求，请联系站点维护者。'
       : status === 413 ? '邮箱服务商拒绝了这封过大的邮件，请减少附件。'
       : '邮箱服务商暂时无法发送这封邮件。';
     throw new DeliveryError(status >= 400 && status < 500 && status !== 408, message);

@@ -21,6 +21,7 @@ All application records include `timestamp`, `level`, and `event`.
 | Event | Meaning and useful fields |
 | --- | --- |
 | `http_request` | API completion or static request failure: generated `requestId`, route template, method, status, optional application error code, `durationMs`. Includes expected 4xx failures and returned health-check 503 responses. |
+| `oauth_sync_failed` | Connected-mailbox sync failed. Includes provider, upstream status when known and a recognized error reason. |
 | `email_rejected` | Recipient has an unmanaged domain or is not an active managed alias. Includes reason, `processingId`, and duration. |
 | `email_duplicate` | An existing Message-ID for the same alias was skipped. Includes internal alias ID and `processingId`; no external Message-ID. |
 | `email_ingested` | Mail and attachments are stored. Includes internal email/alias IDs, attachment count, raw size, duration, and forwarding outcome (`disabled`, `succeeded`, or `failed`). |
