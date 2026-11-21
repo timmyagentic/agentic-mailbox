@@ -1,7 +1,7 @@
 import { ImapFlow, type ImapFlowOptions } from 'imapflow';
-import type { MailProvider } from '../shared/types';
+import type { ImapProvider } from '../shared/types';
 
-const hosts: Record<MailProvider, string> = {
+const hosts: Record<ImapProvider, string> = {
   qq: 'imap.qq.com',
   netease163: 'imap.163.com',
 };
@@ -33,7 +33,7 @@ type Timeline = { uidValidity: string; uids: number[]; hasMore: boolean };
 type Inbox = Timeline & { read: (uid: number) => Promise<ImapMessage> };
 
 export async function withImapInbox<T>(
-  account: { provider: MailProvider; address: string; authorizationCode: string },
+  account: { provider: ImapProvider; address: string; authorizationCode: string },
   cursor: ImapCursor,
   consume: (inbox: Inbox) => Promise<T>,
   createClient: (options: ImapFlowOptions) => ImapFlow = (options) => new ImapFlow(options),

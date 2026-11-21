@@ -27,7 +27,7 @@ type DraftRow = {
   updated_at: string;
 };
 type FileRow = { id: string; filename: string; content_type: string; size: number; r2_key: string };
-type SourceRow = { id: string; alias_id: string; thread_key: string; message_id: string; headers_json: string };
+type SourceRow = { id: string; alias_id: string; thread_key: string; message_id: string; headers_json: string; from_address: string; imap_identity: string | null; remote_thread_id: string | null };
 const draftSelect = `SELECT d.*, a.address FROM drafts d JOIN aliases a ON a.id = d.alias_id`;
 
 function fileDto(row: FileRow) {
@@ -55,7 +55,7 @@ async function draftFiles(env: Env, id: string) {
 }
 
 async function sourceRow(env: Env, id: string) {
-  const source = await env.DB.prepare('SELECT id, alias_id, thread_key, message_id, headers_json FROM emails WHERE id = ?1')
+  const source = await env.DB.prepare('SELECT id, alias_id, thread_key, message_id, headers_json, from_address, imap_identity, remote_thread_id FROM emails WHERE id = ?1')
     .bind(id).first<SourceRow>();
   if (!source) throw new HttpError(404, 'email_not_found', '原邮件不存在。');
   return source;
@@ -76,8 +76,8 @@ function bounded(value: unknown, max: number): string {
 }
 
 async function validateSender(env: Env, id: string) {
-  const alias = await env.DB.prepare(`SELECT a.address, a.routing_mode, i.id AS connection
-    FROM aliases a LEFT JOIN imap_accounts i ON i.id = a.id WHERE a.status = 'active' AND a.id = ?1`)
+  const alias = await env.DB.prepare(`SELECT a.address, a.routing_mode, COALESCE(i.id, o.id) AS connection
+    FROM aliases a LEFT JOIN imap_accounts i ON i.id = a.id LEFT JOIN oauth_accounts o ON o.id = a.id WHERE a.status = 'active' AND a.id = ?1`)
     .bind(id).first<{ address: string; routing_mode: string; connection: string | null }>();
   if (!alias || (!alias.connection && alias.routing_mode !== 'managed')) {
     throw new HttpError(400, 'invalid_sender', '请选择已启用的发信地址。');
@@ -271,9 +271,14 @@ export async function sendDraft(env: Env, id: string) {
       }
     }
 
+    const mailboxSource = source?.alias_id === row.alias_id ? source : null;
     const result = await deliverMail(env, {
       from: row.address, to, cc, bcc, subject: row.subject, text: row.body_text,
       html: row.body_html, headers, messageId: requestedMessageId, attachments: payload,
+      mode: row.mode, source: mailboxSource ? {
+        identity: mailboxSource.imap_identity, threadId: mailboxSource.remote_thread_id,
+        from: mailboxSource.from_address,
+      } : undefined,
     }, account);
     delivered = true;
     const acceptedId = result.messageId || requestedMessageId;
@@ -283,10 +288,10 @@ export async function sendDraft(env: Env, id: string) {
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO emails (id, alias_id, message_id, from_address, to_address, subject,
         preview, body_text, body_html, received_at, sent_at, read_at, attachment_count, headers_json,
-        thread_key, folder, outgoing) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10, ?11, ?12, ?13, 'sent', 1)`)
+        thread_key, remote_thread_id, folder, outgoing) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10, ?11, ?12, ?13, ?14, 'sent', 1)`)
         .bind(id, row.alias_id, acceptedId, row.address, (to.length ? to : cc.length ? cc : bcc).join(', '),
           row.subject, buildPreview(row.body_text), row.body_text, row.body_html, now, filed.length,
-          JSON.stringify(Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]))), threadKey),
+          JSON.stringify(Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]))), threadKey, row.mode === 'reply' ? mailboxSource?.remote_thread_id ?? null : null),
       ...filed.map((file) => env.DB.prepare(`INSERT INTO attachments (id, email_id, alias_id, filename,
         content_type, size, r2_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`)
         .bind(file.id, id, row.alias_id, file.filename, file.content_type, file.size, file.r2_key, now)),

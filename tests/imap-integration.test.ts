@@ -15,6 +15,7 @@ vi.mock('nodemailer', async (importOriginal) => {
     ...upstream, default: {
       ...upstream.default,
       createTransport: (options: { host: string; port: number; secure: boolean; auth: { user: string; pass: string } }) => {
+        if ('streamTransport' in options) return upstream.default.createTransport(options as never);
         expect(options.port).toBe(465);
         expect(options.secure).toBe(true);
         expect(['smtp.qq.com', 'smtp.163.com']).toContain(options.host);
@@ -178,7 +179,7 @@ const netease = fixture('imap.163.com', true, neteaseMail);
 let miniflare: Miniflare;
 let env: Env;
 let cookie: string;
-const origin = 'http://mailbox.example';
+const origin = 'https://mailbox.example';
 const code = 'ABCDEFGHIJKLMNOP';
 
 async function listen(server: Server): Promise<number> {
@@ -233,6 +234,7 @@ beforeAll(async () => {
   ]);
   await migrate('0002_imap_accounts.sql');
   await migrate('0003_conversations_and_drafts.sql');
+  await migrate('0004_oauth_accounts.sql');
   const login = await request('/api/session', 'POST', { password: env.ADMIN_PASSWORD });
   expect(login.status).toBe(200);
   cookie = login.headers.get('set-cookie')?.split(';')[0] ?? '';
@@ -444,4 +446,215 @@ describe('conversation reading, draft review and outbound delivery', () => {
     const state = await request(`/api/drafts/${draft.id}`);
     expect((await state.json() as { draft: MailDraft }).draft.status).toBe('uncertain');
   }, 20_000);
+});
+
+describe('Gmail and Outlook mailbox OAuth', () => {
+  it('binds both providers, refreshes all four inboxes, and dispatches replies and forwards from the correct account', async () => {
+    env.MAIL_OAUTH_ORIGIN = origin;
+    env.GMAIL_CLIENT_ID = 'fixture-google';
+    env.GMAIL_CLIENT_SECRET = 'fixture-google-secret';
+    env.OUTLOOK_CLIENT_ID = 'fixture-microsoft';
+    env.OUTLOOK_CLIENT_SECRET = 'fixture-microsoft-secret';
+
+    const gmailBase = 'https://gmail.googleapis.com/gmail/v1/users/me';
+    const graphBase = 'https://graph.microsoft.com/v1.0/me';
+    const graphCursor = `${graphBase}/mailFolders('folderID=')/messages/delta`;
+    const time = '2026-11-21T12:00:00.000Z';
+    const received = new Map([
+      ['g-one', mail('gmail.com', 'Gmail 测试邮件', 81).raw],
+      ['g-two', mail('gmail.com', 'Gmail 新邮件', 82).raw],
+      ['o-one', mail('outlook.com', 'Outlook 测试邮件', 83).raw],
+      ['o-two', mail('outlook.com', 'Outlook 新邮件', 84).raw],
+    ]);
+    const raw = (id: string) => received.get(id)?.replace('MIME-Version: 1.0', `Message-ID: <${id}@example.com>\r\nMIME-Version: 1.0`) ?? '';
+    const accepted: { path: string; raw: string; threadId?: string }[] = [];
+    const refreshed: string[] = [];
+    const oauthStarts = new Map<string, URL>();
+    let gmailNew = false;
+    let outlookNew = false;
+    let sendStatus = 0;
+
+    const fetchFixture = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, options) => {
+      const url = new URL(String(input));
+      expect(options?.redirect).toBe('manual');
+      const bearer = new Headers(options?.headers).get('Authorization') ?? '';
+      if (url.href === 'https://oauth2.googleapis.com/token' || url.hostname === 'login.microsoftonline.com') {
+        const provider = url.hostname === 'oauth2.googleapis.com' ? 'gmail' : 'outlook';
+        const form = options?.body as URLSearchParams;
+        if (form.get('grant_type') === 'refresh_token') {
+          refreshed.push(form.get('refresh_token') ?? '');
+          return Response.json({ access_token: `${provider}-new-access`, expires_in: 3600,
+            ...(provider === 'outlook' ? { refresh_token: 'outlook-rotated' } : {}) });
+        }
+        const codeValue = form.get('code') ?? '';
+        const start = oauthStarts.get(codeValue);
+        expect(start?.searchParams.get('redirect_uri')).toBe(form.get('redirect_uri'));
+        const verifier = form.get('code_verifier') ?? '';
+        const challenge = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))).toString('base64url');
+        expect(start?.searchParams.get('code_challenge')).toBe(challenge);
+        return Response.json({ access_token: `${provider}-${codeValue}-access`, refresh_token: `${provider}-first-refresh`, expires_in: 1 });
+      }
+
+      if (url.hostname === 'openidconnect.googleapis.com') {
+        if (bearer.includes('wrong-account')) {
+          return Response.json({ sub: 'other-google-subject', email: 'other@gmail.com', email_verified: true });
+        }
+        return Response.json({ sub: 'google-subject', email: 'owner@gmail.com', email_verified: true });
+      }
+      if (url.href.startsWith(graphBase + '?')) {
+        return Response.json({ id: 'microsoft-subject', mail: 'owner@outlook.com' });
+      }
+      if (url.href.startsWith(gmailBase)) {
+        expect(bearer).toBe('Bearer gmail-new-access');
+        if (options?.method === 'POST') {
+          if (sendStatus) return new Response(null, { status: sendStatus });
+          const payload = JSON.parse(String(options.body)) as { raw: string; threadId?: string };
+          accepted.push({ path: url.pathname, raw: Buffer.from(payload.raw, 'base64url').toString(), threadId: payload.threadId });
+          return Response.json({ id: 'gmail-accepted' });
+        }
+        if (url.pathname.endsWith('/profile')) return Response.json({ historyId: '100' });
+        if (url.pathname.endsWith('/messages')) return Response.json({ messages: [{ id: 'g-one' }] });
+        if (url.pathname.endsWith('/history')) {
+          const initial = url.searchParams.get('startHistoryId') === '100';
+          return Response.json({
+            historyId: gmailNew ? '102' : '100',
+            history: gmailNew && initial ? [{ messagesAdded: [{ message: { id: 'g-one' } }, { message: { id: 'g-two' } }] }] : [],
+          });
+        }
+        const id = url.pathname.split('/').at(-1) ?? '';
+        return Response.json({
+          raw: Buffer.from(raw(id)).toString('base64url'), labelIds: ['INBOX', 'UNREAD'],
+          internalDate: String(Date.parse(time)), threadId: `thread-${id}`,
+        });
+      }
+      if (url.href.startsWith(graphBase)) {
+        expect(bearer).toBe('Bearer outlook-new-access');
+        expect(new Headers(options?.headers).get('Prefer')).toContain('ImmutableId');
+        if (options?.method === 'POST') {
+          accepted.push({ path: url.pathname, raw: Buffer.from(String(options.body), 'base64').toString() });
+          return new Response(null, { status: 202 });
+        }
+        if (url.pathname.endsWith('/delta')) {
+          const prior = url.searchParams.get('$deltatoken');
+          const id = !prior ? 'o-one' : outlookNew && prior === 'first' ? 'o-two' : null;
+          return Response.json({
+            value: id ? [{ id, receivedDateTime: time, isRead: true, conversationId: `thread-${id}` }] : [],
+            '@odata.deltaLink': `${graphCursor}?$deltatoken=${outlookNew ? 'second' : 'first'}`,
+          });
+        }
+        if (url.pathname.endsWith('/$value')) return new Response(raw(url.pathname.split('/').at(-2) ?? ''));
+      }
+      throw new Error('Unexpected provider fixture request');
+    });
+
+    try {
+      const start = async (provider: 'gmail' | 'outlook', codeValue: string, accountId?: string) => {
+        const response = await request(`/api/oauth/${provider}/start`, 'POST', { accountId });
+        expect(response.status).toBe(200);
+        const url = new URL((await response.json() as { url: string }).url);
+        expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+        expect(url.searchParams.get('redirect_uri')).toBe(`${origin}/api/oauth/${provider}/callback`);
+        oauthStarts.set(codeValue, url);
+        return { state: url.searchParams.get('state'), code: codeValue };
+      };
+
+      expect((await request('/api/oauth/gmail/start', 'POST', {}, '')).status).toBe(401);
+      expect((await request('/api/oauth/gmail/start', 'POST', {}, cookie, 'http://other.example')).status).toBe(403);
+      const google = await start('gmail', 'good-google');
+      const callback = await request(`/api/oauth/gmail/callback?state=${google.state}&code=${google.code}`, 'GET', undefined, '');
+      expect(callback.status).toBe(303);
+      expect(callback.headers.get('Location')).toBe(`/#mailOAuth=gmail&state=${google.state}&code=${google.code}`);
+      const otherLogin = await request('/api/session', 'POST', { password: env.ADMIN_PASSWORD }, '');
+      const otherSession = otherLogin.headers.get('Set-Cookie')?.split(';')[0] ?? '';
+      expect(otherSession).not.toBe(cookie);
+      expect((await request('/api/oauth/gmail/finish', 'POST', google, otherSession)).status).toBe(400);
+      expect((await request('/api/oauth/outlook/finish', 'POST', google)).status).toBe(400);
+      expect((await request('/api/oauth/gmail/finish', 'POST', google)).status).toBe(200);
+      expect((await request('/api/oauth/gmail/finish', 'POST', google)).status).toBe(400);
+      const microsoft = await start('outlook', 'good-microsoft');
+      expect((await request('/api/oauth/outlook/finish', 'POST', microsoft)).status).toBe(200);
+
+      const bootstrap = await (await request('/api/bootstrap')).json() as BootstrapPayload;
+      const googleAccount = bootstrap.mailAccounts.find(({ provider }) => provider === 'gmail');
+      const outlookAccount = bootstrap.mailAccounts.find(({ provider }) => provider === 'outlook');
+      const accounts = bootstrap.mailAccounts.filter(({ address }) => address.startsWith('owner@'));
+      expect(accounts.map(({ provider }) => provider).sort()).toEqual(['gmail', 'netease163', 'outlook', 'qq']);
+      expect(bootstrap.oauthProviders).toEqual(['gmail', 'outlook']);
+      expect(bootstrap.recentAliases.map(({ id }) => id)).toEqual(['legacy']);
+      expect(bootstrap.stats.aliasCount).toBe(1);
+      const encrypted = await env.DB.prepare('SELECT credential FROM oauth_accounts').all<{ credential: string }>();
+      expect(encrypted.results).toHaveLength(2);
+      expect(encrypted.results.every(({ credential }) => !credential.includes('-refresh'))).toBe(true);
+
+      const wrong = await start('gmail', 'wrong-account', googleAccount?.id);
+      expect((await request('/api/oauth/gmail/finish', 'POST', wrong)).status).toBe(409);
+      const refresh = async () => Promise.all(accounts.map(async ({ id }) => {
+        const response = await request(`/api/mail-accounts/${id}/refresh`, 'POST');
+        expect(response.status).toBe(200);
+        const { result } = await response.json() as { result: MailRefreshResult };
+        expect(result.error).toBeUndefined();
+        return result.imported;
+      }));
+      expect(await refresh()).toEqual([0, 1, 1, 0]);
+      expect(refreshed.sort()).toEqual(['gmail-first-refresh', 'outlook-first-refresh']);
+      gmailNew = true;
+      outlookNew = true;
+      qqMail.push(mail('qq.com', 'QQ OAuth 回归', 47));
+      neteaseMail.push(mail('163.com', '163 OAuth 回归', 73));
+      expect(await refresh()).toEqual([1, 1, 1, 1]);
+      expect(await refresh()).toEqual([0, 0, 0, 0]);
+      expect(refreshed).toHaveLength(2);
+
+      const { emails } = await (await request('/api/emails')).json() as { emails: EmailSummary[] };
+      expect(emails.map(({ subject }) => subject)).toEqual(expect.arrayContaining([
+        'Gmail 测试邮件', 'Gmail 新邮件', 'Outlook 测试邮件', 'Outlook 新邮件',
+      ]));
+      const submit = async (draftInput: Partial<DraftInput>, status = 200) => {
+        const created = await request('/api/drafts', 'POST', {
+          to: 'sender@example.com', subject: '标题', bodyText: '测试出站正文', ...draftInput,
+        });
+        expect(created.status).toBe(201);
+        const { draft } = await created.json() as { draft: MailDraft };
+        const response = await request(`/api/drafts/${draft.id}/send`, 'POST', {});
+        expect(response.status).toBe(status);
+        return draft.id;
+      };
+      for (const account of [googleAccount, outlookAccount]) {
+        const aliasId = account?.id;
+        const source = emails.find((email) => email.aliasId === aliasId);
+        expect(source?.attachmentCount).toBe(1);
+        const sourceEmailId = source?.id;
+        await submit({ aliasId, bcc: 'hidden@example.com' });
+        await submit({ aliasId, sourceEmailId, mode: 'reply', subject: `Re: ${source?.subject}` });
+        await submit({ aliasId, sourceEmailId, mode: 'forward', includeOriginalFiles: true, subject: `Fwd: ${source?.subject}` });
+      }
+      expect(accepted).toHaveLength(6);
+      expect(accepted.slice(0, 3).every(({ path }) => path.endsWith('/messages/send'))).toBe(true);
+      expect(accepted[1].threadId).toMatch(/^thread-g-/);
+      expect(accepted[2].threadId).toBeUndefined();
+      expect(accepted[3].path).toBe('/v1.0/me/sendMail');
+      expect(accepted[4].path).toMatch(/\/messages\/o-(one|two)\/reply$/);
+      expect(accepted[5].path).toMatch(/\/messages\/o-(one|two)\/forward$/);
+      expect(accepted[0].raw).toContain('Bcc: hidden@example.com');
+      expect(accepted[3].raw).toContain('Bcc: hidden@example.com');
+      for (const index of [1, 4]) {
+        const parsed = await PostalMime.parse(accepted[index].raw);
+        expect(parsed.from?.address).toBe(index === 1 ? 'owner@gmail.com' : 'owner@outlook.com');
+        expect(parsed.inReplyTo).toMatch(/@(example\.com)>/);
+      }
+      for (const index of [2, 5]) {
+        const parsed = await PostalMime.parse(accepted[index].raw);
+        expect(parsed.attachments[0].filename).toBe('receipt.txt');
+      }
+
+      sendStatus = 503;
+      const uncertain = await submit({ aliasId: googleAccount?.id }, 502);
+      expect((await request(`/api/drafts/${uncertain}/send`, 'POST', {})).status).toBe(409);
+      sendStatus = 403;
+      const denied = await submit({ aliasId: googleAccount?.id }, 502);
+      expect((await (await request(`/api/drafts/${denied}`)).json() as { draft: MailDraft }).draft.status).toBe('draft');
+    } finally {
+      fetchFixture.mockRestore();
+    }
+  }, 35_000);
 });

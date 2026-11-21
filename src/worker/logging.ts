@@ -25,6 +25,7 @@ export function requestRoute(pathname: string): string {
   if (['/api/health', '/api/session', '/api/session/certificate', '/api/bootstrap', '/api/aliases', '/api/mail-accounts', '/api/emails', '/api/files', '/api/conversations', '/api/drafts'].includes(pathname)) {
     return pathname;
   }
+  if (/^\/api\/oauth\/(?:gmail|outlook)\/(?:start|callback|finish)$/.test(pathname)) return pathname;
   if (/^\/api\/conversations\/[^/]+$/.test(pathname)) return '/api/conversations/:id';
   if (/^\/api\/drafts\/[^/]+(?:\/(?:send|suggest|files)(?:\/[^/]+)?)?$/.test(pathname)) return '/api/drafts/:id';
   if (/^\/api\/emails\/[^/]+\/placement$/.test(pathname)) return '/api/emails/:id/placement';

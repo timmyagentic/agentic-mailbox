@@ -2319,6 +2319,13 @@ textarea:focus-visible {
   }
 }
 
+.mailbox-oauth-options {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid currentColor;
+  border-color: color-mix(in srgb, currentColor 15%, transparent);
+}
+
 .connected-mailboxes {
   display: grid;
   gap: 8px;

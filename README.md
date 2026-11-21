@@ -1,6 +1,6 @@
 # Mailbox Vault
 
-Mailbox Vault is a private Cloudflare-native inbox for managed aliases on `emomo.net` and connected QQ and NetEase 163 mailboxes. It stores mail metadata and text in D1 and attachments in private R2 storage.
+Mailbox Vault is a private Cloudflare-native inbox for managed aliases on `emomo.net` and connected QQ, NetEase 163, Gmail and Outlook mailboxes. It stores mail metadata and text in D1 and attachments in private R2 storage.
 
 ## MVP scope
 
@@ -19,20 +19,35 @@ This project provisions routing aliases, not login-capable IMAP/SMTP mailboxes, 
 ## Connected mailboxes
 
 1. In QQ Mail or NetEase 163, enable IMAP and generate a client authorization code.
-2. In Mailbox Vault, open **收件箱 → 接入邮箱** and enter the address and authorization code. QQ Mail, Foxmail and consumer 163 accounts are supported.
+2. In Mailbox Vault, open **邮箱设置 → 接入邮箱** and enter the address and authorization code. QQ Mail, Foxmail and consumer 163 accounts are supported.
 3. Click **一键刷新** to fetch mail for all connected accounts. The **全部邮箱** filter includes connected accounts and managed aliases. Account errors appear individually and the account's **更新授权码** action preserves its imported mail.
 
-The initial sync imports up to the 25 newest INBOX messages per account. Subsequent refreshes import up to 25 new messages per account at a time. Messages larger than 10 MiB are reported and remain in the source mailbox. The app imports the initial read flag and tracks subsequent read changes locally. IMAP PEEK preserves flags and message contents in the source mailbox.
+QQ, 163 and Gmail initially import up to 25 recent inbox messages. Outlook starts with the last 30 days of its inbox. Each manual refresh can import up to 25 messages per account. The account status shows when another refresh is needed. Messages larger than 10 MiB are reported and remain in the source mailbox. The app imports the initial read flag and tracks subsequent read changes locally. IMAP PEEK preserves flags and message contents in the source mailbox.
 
 The IMAP connection uses fixed TLS endpoints and encrypted authorization codes. Generate a separate 32-byte base64 key with `openssl rand -base64 32` and set it as `MAIL_ACCOUNT_KEY` in `.dev.vars` for local development or as a Worker secret when deploying. Keep the key stable across deployments to retain access to existing encrypted authorization codes. Apply the D1 migrations before starting the app or deploying the updated Worker.
 
 The unified inbox follows [Zero](https://github.com/Mail-0/Zero/blob/4b642df/apps/server/src/trpc/routes/mail.ts#L224). IMAP uses [ImapFlow](https://github.com/postalsys/imapflow). The NetEase-specific post-login `ID` follows [Mailspring-Sync's compatibility fix](https://github.com/Foundry376/Mailspring-Sync/pull/121).
 
+### Gmail and Outlook OAuth
+
+In **邮箱设置 → 接入邮箱**, choose **使用 Gmail 授权** or **使用 Outlook 授权** and approve access with the provider. Each provider button becomes available when that OAuth client is configured. Use **重新授权** to renew a connection while keeping its stored mail.
+
+For a self-hosted instance:
+
+- Set `MAIL_OAUTH_ORIGIN` to the exact Vault origin, such as `http://localhost:8787` or `https://mailbox.timmyagentic.si`.
+- Create a Google OAuth **Web application** client, enable the Gmail API, and register `<origin>/api/oauth/gmail/callback`. Configure the consent screen for `gmail.readonly` and `gmail.send`. If using Google’s External Testing mode, add the mailbox as a test user. For Gmail scopes issued in that mode, Google refresh tokens normally expire after seven days.
+- Create a Microsoft Entra **Web** application and register `<origin>/api/oauth/outlook/callback`. Select both organizational and personal Microsoft accounts for the `common` authority. Configure delegated Microsoft Graph permissions `User.Read`, `Mail.Read` and `Mail.Send`. Organizational accounts may require administrator consent.
+- Set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `OUTLOOK_CLIENT_ID` and `OUTLOOK_CLIENT_SECRET` as Worker secrets in production or in `.dev.vars` locally. Use the existing `MAIL_ACCOUNT_KEY` to encrypt the tokens. Apply migration `0004_oauth_accounts.sql` before starting the new Worker build.
+
+The Worker uses Gmail history and Microsoft Graph inbox delta cursors to import new inbox messages. On expiry it backfills from around the last completed sync. Outlook’s initial window and backfill are limited to the [filtered Graph delta query limit](https://learn.microsoft.com/en-us/graph/delta-query-messages#use-query-parameters-in-a-delta-query-for-messages). Read flags, archive and trash changes made in Vault are local. An OAuth callback finishes only with the same authenticated Vault session that started it. Worker invocation URL logging is disabled so callback codes stay out of those logs.
+
+See [Zero’s Google driver](https://github.com/Mail-0/Zero/blob/4b642df/apps/server/src/lib/driver/google.ts), [Zero’s Outlook driver](https://github.com/Mail-0/Zero/blob/4b642df/apps/server/src/lib/driver/microsoft.ts), [Google OAuth setup](https://developers.google.com/identity/protocols/oauth2/web-server) and [Microsoft app registration](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app).
+
 ## Conversation workspace
 
 The workbench keeps the unified Inbox and account filter, with Sent, Drafts, Archive, and Trash views. It groups messages within one connected address using their message IDs and reply references. The reader shows the most recent 50 messages in a conversation. Folder, star, and read changes are stored by Mailbox Vault.
 
-Compose, reply, and forward from an enabled address. QQ and 163 send through their TLS SMTP servers on port 465 using the existing client authorization code. Managed aliases send through the Worker `EMAIL` binding once the domain has been onboarded to Cloudflare Email Sending. Replies pass threading headers and forwards can include the source attachments. All attachments in a message share a 5 MiB limit. Send attempts with an uncertain result leave the draft locked for review.
+Compose, reply, and forward from an enabled address. QQ and 163 send through their TLS SMTP servers on port 465 using the existing client authorization code. Gmail and Outlook send through their official mail APIs with the connected account’s delegated permission. Managed aliases send through the Worker `EMAIL` binding once the domain has been onboarded to Cloudflare Email Sending. Replies pass threading headers and forwards can include the source attachments. All attachments in a message share a 5 MiB limit. Outlook also caps the encoded message at 4 MB, including the base64 expansion, body and headers. Send attempts with an uncertain result leave the draft locked for review.
 
 Open the Agent panel to generate a draft on demand. The `AI` binding uses Workers AI Gemma 4. Generation uses the current prompt, draft text and a limited excerpt of the selected conversation. Review or edit the resulting draft before pressing Send.
 
@@ -54,7 +69,8 @@ flowchart LR
   Worker --> Assets[React static assets]
   Worker --> D1
   Worker --> R2
-  External[QQ and 163 mailboxes] <-->|Manual IMAP refresh| Worker
+  External[QQ and 163 mailboxes] <-->|IMAP and SMTP| Worker
+  OAuth[Gmail API and Microsoft Graph] <-->|OAuth, manual refresh and send| Worker
 ```
 
 ## Development

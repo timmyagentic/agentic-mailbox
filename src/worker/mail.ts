@@ -118,6 +118,7 @@ type MailToStore = {
   headersJson: string;
   readAt?: string | null;
   imapIdentity?: string;
+  remoteThreadId?: string;
 };
 
 async function hasStoredMail(env: Env, aliasId: string, messageId: string, imapIdentity?: string) {
@@ -134,7 +135,7 @@ async function hasStoredMail(env: Env, aliasId: string, messageId: string, imapI
 }
 
 async function saveMail(env: Env, aliasId: string, mail: MailToStore, context: IngestContext) {
-  const { parsed, messageId, sender, recipient, receivedAt, rawSize, headersJson, readAt, imapIdentity } = mail;
+  const { parsed, messageId, sender, recipient, receivedAt, rawSize, headersJson, readAt, imapIdentity, remoteThreadId } = mail;
   const emailId = crypto.randomUUID();
   const headers = mailHeaders(headersJson);
   const replyTo = messageIds(headers['in-reply-to']).at(-1);
@@ -143,7 +144,7 @@ async function saveMail(env: Env, aliasId: string, mail: MailToStore, context: I
       "SELECT thread_key FROM emails WHERE alias_id = ?1 AND message_id IN (?2, ?3) AND thread_key <> '' LIMIT 1",
     ).bind(aliasId, `<${replyTo}>`, replyTo).first<{ thread_key: string }>()
     : null;
-  const threadKey = parent?.thread_key ?? getThreadKey(emailId, messageId, headers);
+  const threadKey = parent?.thread_key ?? (remoteThreadId ? `remote:${remoteThreadId}` : getThreadKey(emailId, messageId, headers));
   const subject = truncateText(parsed.subject?.trim() || '(无主题)', 500);
   const bodyText = truncateText(parsed.text ?? '', MAX_BODY_TEXT);
   const bodyHtml = truncateText(parsed.html ?? '', MAX_BODY_HTML);
@@ -157,12 +158,12 @@ async function saveMail(env: Env, aliasId: string, mail: MailToStore, context: I
       `INSERT INTO emails (
         id, alias_id, message_id, from_address, from_name, to_address, subject,
         preview, body_text, body_html, received_at, sent_at, raw_size, read_at,
-        attachment_count, headers_json, imap_identity, thread_key
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
+        attachment_count, headers_json, imap_identity, thread_key, remote_thread_id
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`,
     ).bind(
       emailId, aliasId, messageId, sender, mailboxName(parsed.from), recipient, subject,
       preview, bodyText, bodyHtml, receivedAt, safeIsoDate(parsed.date), rawSize,
-      readAt ?? null, attachments.length, headersJson, imapIdentity ?? null, threadKey,
+      readAt ?? null, attachments.length, headersJson, imapIdentity ?? null, threadKey, remoteThreadId ?? null,
     );
     const insertAttachments = attachments.map((attachment) =>
       env.DB.prepare(
@@ -191,9 +192,9 @@ async function saveMail(env: Env, aliasId: string, mail: MailToStore, context: I
   return { emailId, attachmentCount: attachments.length };
 }
 
-export async function storeImapMail(
+export async function storeConnectedMail(
   env: Env,
-  mail: { accountId: string; address: string; identity: string; raw: Uint8Array; receivedAt: string; seen: boolean },
+  mail: { accountId: string; address: string; identity: string; raw: Uint8Array; receivedAt: string; seen: boolean; remoteThreadId?: string },
 ): Promise<boolean> {
   const context: IngestContext = { processingId: crypto.randomUUID(), started: performance.now(), stage: 'parse' };
   try {
@@ -209,7 +210,7 @@ export async function storeImapMail(
     await saveMail(env, mail.accountId, {
       parsed, messageId, sender: normalizeAddress(sender) ?? truncateText(sender, 320),
       recipient: mail.address, receivedAt: mail.receivedAt, rawSize: mail.raw.byteLength, headersJson,
-      readAt: mail.seen ? mail.receivedAt : null, imapIdentity: mail.identity,
+      readAt: mail.seen ? mail.receivedAt : null, imapIdentity: mail.identity, remoteThreadId: mail.remoteThreadId,
     }, context);
     return true;
   } catch {

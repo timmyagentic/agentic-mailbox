@@ -27,6 +27,7 @@ import {
   discardDraft, discardDraftFile, generateDraftText, getDraft, listDrafts, saveDraft, sendDraft, uploadDraftFile,
 } from './drafts';
 import { assertSameOrigin, HttpError, json, parseLimit, readJson } from './http';
+import { configuredOAuthProviders, finishOAuth, isOAuthProvider, oauthCallback, startOAuth } from './oauth';
 import type { Env } from './types';
 
 type LoginBody = { password?: string };
@@ -134,6 +135,7 @@ async function bootstrap(env: Env): Promise<Response> {
     recentEmails,
     recentAliases,
     mailAccounts,
+    oauthProviders: configuredOAuthProviders(env),
   } satisfies BootstrapPayload);
 }
 
@@ -192,7 +194,27 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     return handleCertificateLogin(request, env);
   }
 
+  const callbackProvider = routeId(pathname, '/api/oauth/', '/callback');
+  if (isOAuthProvider(callbackProvider) && request.method === 'GET') {
+    return oauthCallback(env, url, callbackProvider);
+  }
+
   await requireSession(request, env);
+
+  const startProvider = routeId(pathname, '/api/oauth/', '/start');
+  if (isOAuthProvider(startProvider) && request.method === 'POST') {
+    assertSameOrigin(request);
+    const body = await readJson<{ accountId?: unknown }>(request);
+    return json({ url: await startOAuth(env, request, startProvider, body?.accountId) });
+  }
+
+  const finishProvider = routeId(pathname, '/api/oauth/', '/finish');
+  if (isOAuthProvider(finishProvider) && request.method === 'POST') {
+    assertSameOrigin(request);
+    const body = await readJson<{ state?: unknown; code?: unknown; error?: unknown }>(request);
+    await finishOAuth(env, request, finishProvider, body);
+    return json({ ok: true });
+  }
 
   if (pathname === '/api/bootstrap' && request.method === 'GET') {
     return bootstrap(env);

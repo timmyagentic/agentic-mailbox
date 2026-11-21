@@ -113,10 +113,12 @@ it('keeps the session visible and reports failed logout instead of pretending it
   expect(screen.getByRole('status').textContent).toContain('网络连接失败');
 });
 
-it('refreshes both connected mailboxes in one click and displays an individual failure', async () => {
+it('refreshes all four connected mailboxes in one click and displays an individual failure', async () => {
   const mailAccounts = [
     { id: 'qq', provider: 'qq' as const, address: 'owner@qq.com', lastSyncAt: null },
     { id: '163', provider: 'netease163' as const, address: 'owner@163.com', lastSyncAt: null },
+    { id: 'gmail', provider: 'gmail' as const, address: 'owner@gmail.com', lastSyncAt: null },
+    { id: 'outlook', provider: 'outlook' as const, address: 'owner@outlook.com', lastSyncAt: null },
   ];
   vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts });
   vi.mocked(mailboxApi.refreshMailAccount).mockImplementation(async (id) => ({
@@ -133,9 +135,11 @@ it('refreshes both connected mailboxes in one click and displays an individual f
   ] });
   fireEvent.click(screen.getByRole('button', { name: '一键刷新' }));
   await screen.findByRole('button', { name: /QQ 新邮件/ });
-  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledTimes(2);
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledTimes(4);
   expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('qq');
   expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('163');
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('gmail');
+  expect(mailboxApi.refreshMailAccount).toHaveBeenCalledWith('outlook');
   fireEvent.click(screen.getByRole('button', { name: '邮箱设置' }));
   await screen.findByText('邮箱授权失败');
   fireEvent.click(screen.getByRole('button', { name: /^收件箱/ }));
@@ -157,4 +161,19 @@ it('can sign in with a device certificate without entering a password', async ()
   await screen.findByRole('heading', { name: '收件箱' });
   expect(mailboxApi.loginWithCertificate).toHaveBeenCalledTimes(1);
   expect(mailboxApi.login).not.toHaveBeenCalled();
+});
+
+it('finishes the OAuth callback, removes the temporary fragment, and opens mailbox settings', async () => {
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, oauthProviders: ['gmail', 'outlook'] });
+  vi.mocked(mailboxApi.finishMailOAuth).mockResolvedValue({ ok: true });
+  window.history.replaceState(null, '', '/#mailOAuth=outlook&state=state-fixture&code=authorization-fixture');
+  render(<App />);
+  await screen.findByRole('heading', { name: '已接入邮箱' });
+  expect(window.location.hash).toBe('');
+  expect(mailboxApi.finishMailOAuth).toHaveBeenCalledExactlyOnceWith('outlook', {
+    state: 'state-fixture', code: 'authorization-fixture', error: null,
+  });
+  fireEvent.click(screen.getByRole('button', { name: '接入邮箱' }));
+  expect((screen.getByRole('button', { name: '使用 Gmail 授权' }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole('button', { name: '使用 Outlook 授权' }) as HTMLButtonElement).disabled).toBe(false);
 });

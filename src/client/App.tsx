@@ -7,6 +7,7 @@ import type {
   EmailSummary,
   MailAlias,
   MailRefreshResult,
+  OAuthProvider,
 } from '../shared/types';
 import { ApiRequestError, mailboxApi } from './api';
 import type { ViewName } from './workbench/InboxWorkbench';
@@ -70,16 +71,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
     void mailboxApi
       .session()
       .then(async (session) => {
+        if (!active) return;
         setAuthenticated(session.authenticated);
-        if (session.authenticated) {
-          await loadData();
+        const callback = new URLSearchParams(window.location.hash.slice(1));
+        const provider = callback.get('mailOAuth');
+        if (provider === 'gmail' || provider === 'outlook') {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          setActiveView('aliases');
+          if (session.authenticated) {
+            try {
+              await mailboxApi.finishMailOAuth(provider, {
+                state: callback.get('state'), code: callback.get('code'), error: callback.get('error'),
+              });
+              setToast({ type: 'success', message: '邮箱已授权。点击「一键刷新」同步邮件。' });
+            } catch (error) {
+              showError(error);
+            }
+          } else {
+            setLoginError('邮箱管理会话已过期，请重新登录后开始授权。');
+          }
         }
+        if (session.authenticated) await loadData();
       })
-      .catch(showError)
-      .finally(() => setCheckingSession(false));
+      .catch((error) => { if (active) showError(error); })
+      .finally(() => { if (active) setCheckingSession(false); });
+    return () => { active = false; };
   }, [loadData, showError]);
 
   useEffect(() => {
@@ -147,10 +167,12 @@ export default function App() {
 
       const imported = results.reduce((total, result) => total + result.imported, 0);
       const errors = results.filter((result) => result.error).length;
+      const more = results.some((result) => result.hasMore);
       const receipt = imported > 0 ? `同步了 ${imported} 封邮件` : '收件箱已刷新';
       setToast({
         type: errors ? 'error' : 'success',
-        message: errors ? `${receipt}，${errors} 个邮箱同步失败。查看该账号的状态。` : `${receipt}。`,
+        message: errors ? `${receipt}，${errors} 个邮箱同步失败。查看该账号的状态。`
+          : more ? `${receipt}。还有邮件待同步，可再刷新一次。` : `${receipt}。`,
       });
     } catch (error) {
       showError(error);
@@ -169,6 +191,16 @@ export default function App() {
       } : current);
       setRefreshResults((current) => current.filter(({ id }) => id !== account.id));
       setToast({ type: 'success', message: '邮箱已保存。点击「一键刷新」同步邮件。' });
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) showError(error);
+      throw error;
+    }
+  };
+
+  const authorizeMailbox = async (provider: OAuthProvider, accountId?: string) => {
+    try {
+      const { url } = await mailboxApi.startMailOAuth(provider, accountId);
+      window.location.assign(url);
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) showError(error);
       throw error;
@@ -271,7 +303,8 @@ export default function App() {
           ) : null}
           {activeView === 'aliases' ? (
             <div className="page">
-              <ConnectedMailboxes accounts={accounts} results={refreshResults} refreshing={refreshing} onSave={saveMailAccount} />
+              <ConnectedMailboxes accounts={accounts} results={refreshResults} refreshing={refreshing}
+                oauthProviders={bootstrap?.oauthProviders ?? []} onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
               <AliasesView
                 aliases={aliases}
                 primaryDomain={primaryDomain}

@@ -12,6 +12,7 @@ import type {
   MailAlias,
   MailAccount,
   MailRefreshResult,
+  OAuthProvider,
   SessionPayload,
 } from '../shared/types';
 
@@ -83,6 +84,10 @@ export const mailboxApi = {
       method: 'PATCH',
       body: JSON.stringify(input),
     }),
+  startMailOAuth: (provider: OAuthProvider, accountId?: string) =>
+    api<{ url: string }>(`/api/oauth/${provider}/start`, { method: 'POST', body: JSON.stringify({ accountId }) }),
+  finishMailOAuth: (provider: OAuthProvider, response: { state: string | null; code: string | null; error: string | null }) =>
+    api<{ ok: true }>(`/api/oauth/${provider}/finish`, { method: 'POST', body: JSON.stringify(response) }),
   saveMailAccount: (input: { email: string; authorizationCode: string }) =>
     api<{ account: MailAccount }>('/api/mail-accounts', { method: 'POST', body: JSON.stringify(input) }),
   refreshMailAccount: (id: string) =>

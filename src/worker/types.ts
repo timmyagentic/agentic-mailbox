@@ -10,6 +10,11 @@ export interface Env {
   ADMIN_CERT_FINGERPRINTS?: string;
   SESSION_SECRET: string;
   MAIL_ACCOUNT_KEY?: string;
+  MAIL_OAUTH_ORIGIN?: string;
+  GMAIL_CLIENT_ID?: string;
+  GMAIL_CLIENT_SECRET?: string;
+  OUTLOOK_CLIENT_ID?: string;
+  OUTLOOK_CLIENT_SECRET?: string;
   EMAIL?: SendEmail;
   AI?: Ai;
 }

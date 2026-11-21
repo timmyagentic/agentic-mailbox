@@ -1,8 +1,11 @@
-import type { MailAccount, MailProvider, MailRefreshResult } from '../shared/types';
+import type { ImapProvider, MailAccount, MailProvider, MailRefreshResult, OAuthProvider } from '../shared/types';
 import { normalizeAddress } from '../shared/validation';
+import { openCredential, sealCredential } from './account-credentials';
 import { HttpError } from './http';
 import { imapRefreshError, withImapInbox } from './imap';
-import { storeImapMail } from './mail';
+import { storeConnectedMail } from './mail';
+import { isOAuthProvider, MailProviderError, oauthAccessToken } from './oauth';
+import { loadOAuthInbox, readOAuthMail } from './oauth-inbox';
 import type { Env } from './types';
 
 type AccountRow = {
@@ -12,6 +15,7 @@ type AccountRow = {
   last_sync_at: string | null;
 };
 type SyncRow = AccountRow & {
+  provider: ImapProvider;
   credential: string;
   uid_validity: string | null;
   last_uid: number;
@@ -19,6 +23,7 @@ type SyncRow = AccountRow & {
 
 const accountSelect = `SELECT c.id, c.provider, a.address, c.last_sync_at
   FROM imap_accounts c JOIN aliases a ON a.id = c.id`;
+const oauthSelect = `SELECT c.id, c.provider, a.address, c.last_sync_at FROM oauth_accounts c JOIN aliases a ON a.id = c.id`;
 const syncLeaseMs = 90_000;
 
 function mapAccount(row: AccountRow): MailAccount {
@@ -26,50 +31,14 @@ function mapAccount(row: AccountRow): MailAccount {
 }
 
 export async function listMailAccounts(env: Env): Promise<MailAccount[]> {
-  const rows = await env.DB.prepare(`${accountSelect} ORDER BY a.address`).all<AccountRow>();
+  const rows = await env.DB.prepare(`${accountSelect} UNION ALL ${oauthSelect} ORDER BY address`).all<AccountRow>();
   return rows.results.map(mapAccount);
 }
 
-function providerOf(domain: string): MailProvider | null {
+function providerOf(domain: string): ImapProvider | null {
   if (domain === 'qq.com' || domain === 'foxmail.com') return 'qq';
   if (domain === '163.com') return 'netease163';
   return null;
-}
-
-function fromBase64(value: string) {
-  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-}
-
-function toBase64(bytes: Uint8Array) {
-  return btoa(String.fromCharCode(...bytes));
-}
-
-async function getCredentialKey(env: Env) {
-  try {
-    const bytes = fromBase64(env.MAIL_ACCOUNT_KEY?.trim() ?? '');
-    if (bytes.byteLength === 32) return await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
-  } catch {
-    // Report only that the service is unavailable.
-  }
-  throw new HttpError(503, 'mail_account_key_unavailable', '服务端尚未配置邮箱授权码加密密钥。');
-}
-
-function cipherParams(address: string, iv: Uint8Array<ArrayBuffer>) {
-  return { name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(address) };
-}
-
-async function sealCredential(env: Env, address: string, code: string) {
-  const key = await getCredentialKey(env);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(cipherParams(address, iv), key, new TextEncoder().encode(code));
-  return `${toBase64(iv)}.${toBase64(new Uint8Array(ciphertext))}`;
-}
-
-async function openCredential(env: Env, account: { address: string; credential: string }) {
-  const key = await getCredentialKey(env);
-  const [iv, ciphertext] = account.credential.split('.');
-  const bytes = await crypto.subtle.decrypt(cipherParams(account.address, fromBase64(iv)), key, fromBase64(ciphertext));
-  return new TextDecoder().decode(bytes);
 }
 
 export async function saveMailAccount(env: Env, input: { email?: unknown; authorizationCode?: unknown }): Promise<MailAccount> {
@@ -112,7 +81,7 @@ export async function saveMailAccount(env: Env, input: { email?: unknown; author
   return { id, provider, address, lastSyncAt: null };
 }
 
-export async function refreshMailAccount(env: Env, id: string): Promise<MailRefreshResult> {
+async function refreshImapAccount(env: Env, id: string): Promise<MailRefreshResult> {
   const syncId = crypto.randomUUID();
   const now = Date.now();
   const claim = await env.DB.prepare(
@@ -153,7 +122,7 @@ export async function refreshMailAccount(env: Env, id: string): Promise<MailRefr
       for (const uid of inbox.uids) {
         const message = await inbox.read(uid);
         if (message.kind === 'mail') {
-          if (await storeImapMail(env, {
+          if (await storeConnectedMail(env, {
             ...message, accountId: id, address: account.address, identity: `${inbox.uidValidity}:${uid}`,
           })) imported += 1;
         } else if (message.kind === 'oversized') {
@@ -181,11 +150,76 @@ export async function refreshMailAccount(env: Env, id: string): Promise<MailRefr
   }
 }
 
+export async function refreshMailAccount(env: Env, id: string): Promise<MailRefreshResult> {
+  const oauth = await env.DB.prepare('SELECT id FROM oauth_accounts WHERE id = ?1').bind(id).first();
+  return oauth ? refreshOAuthAccount(env, id) : refreshImapAccount(env, id);
+}
+
+async function refreshOAuthAccount(env: Env, id: string): Promise<MailRefreshResult> {
+  const syncId = crypto.randomUUID();
+  const now = Date.now();
+  const claim = await env.DB.prepare(
+    'UPDATE oauth_accounts SET sync_id = ?1, sync_until = ?2 WHERE id = ?3 AND sync_until <= ?4',
+  ).bind(syncId, now + syncLeaseMs, id, now).run();
+  if (!claim.meta.changes) throw new HttpError(409, 'mail_sync_in_progress', '这个邮箱已在同步，稍后刷新即可。');
+
+  let imported = 0;
+  let oversized = 0;
+  let lastSyncAt: string | null = null;
+  try {
+    const account = await env.DB.prepare(`SELECT a.address, a.status, c.id, c.provider, c.credential, c.cursor, c.last_sync_at
+      FROM oauth_accounts c JOIN aliases a ON a.id = c.id WHERE c.id = ?1 AND c.sync_id = ?2`)
+      .bind(id, syncId).first<AccountRow & { provider: OAuthProvider; credential: string; cursor: string | null; status: string }>();
+    if (!account) throw new Error('Unable to load synchronized account');
+    lastSyncAt = account.last_sync_at;
+    if (account.status !== 'active') throw new HttpError(409, 'mail_account_disabled', '这个邮箱已停用。');
+    const token = await oauthAccessToken(env, account);
+    const page = await loadOAuthInbox(account.provider, token, account.cursor, lastSyncAt);
+    let processed = 0;
+    for (const message of page.messages) {
+      if (processed > 0 && Date.now() - now > 35_000) break;
+      const identity = `${account.provider}:${message.id}`;
+      const known = await env.DB.prepare('SELECT id FROM emails WHERE alias_id = ?1 AND imap_identity = ?2')
+        .bind(id, identity).first();
+      if (!known) {
+        const mail = await readOAuthMail(account.provider, token, message);
+        if (mail.kind === 'mail' && await storeConnectedMail(env, { ...mail, accountId: id, address: account.address, identity })) {
+          imported += 1;
+        }
+        if (mail.kind === 'oversized') oversized += 1;
+      }
+      processed += 1;
+    }
+    const hasMore = page.hasMore || processed < page.messages.length;
+    const syncedAt = hasMore ? lastSyncAt : new Date(now).toISOString();
+    const updated = await env.DB.prepare('UPDATE oauth_accounts SET cursor = ?1, last_sync_at = ?2 WHERE id = ?3 AND sync_id = ?4')
+      .bind(page.cursorAfter(processed) ?? account.cursor, syncedAt, id, syncId).run();
+    if (!updated.meta.changes) throw new Error('Mail sync lease expired');
+    return { id, imported, oversized, hasMore, lastSyncAt: syncedAt };
+  } catch (error) {
+    const message = error instanceof HttpError ? error.message
+      : error instanceof MailProviderError && [401, 403].includes(error.status)
+        ? '邮箱授权不可用，请重新授权并允许读取邮件。'
+        : '无法同步此邮箱，请稍后刷新。';
+    return { id, imported, oversized, hasMore: false, lastSyncAt, error: message };
+  } finally {
+    await env.DB.prepare('UPDATE oauth_accounts SET sync_id = NULL, sync_until = 0 WHERE id = ?1 AND sync_id = ?2')
+      .bind(id, syncId).run();
+  }
+}
+
 export async function getMailAccountCredentials(env: Env, id: string) {
-  const account = await env.DB.prepare(
-    `SELECT c.provider, c.credential, a.address FROM imap_accounts c
-     JOIN aliases a ON a.id = c.id WHERE c.id = ?1 AND a.status = 'active'`,
-  ).bind(id).first<{ provider: MailProvider; credential: string; address: string }>();
+  const account = await env.DB.prepare(`SELECT provider, credential, address FROM (
+    SELECT c.provider, c.credential, a.address FROM imap_accounts c
+    JOIN aliases a ON a.id = c.id WHERE c.id = ?1 AND a.status = 'active'
+    UNION ALL
+    SELECT c.provider, c.credential, a.address FROM oauth_accounts c
+    JOIN aliases a ON a.id = c.id WHERE c.id = ?1 AND a.status = 'active'
+  )`).bind(id).first<{ provider: MailProvider; credential: string; address: string }>();
   if (!account) return null;
-  return { provider: account.provider, address: account.address, authorizationCode: await openCredential(env, account) };
+  const { provider, address } = account;
+  if (isOAuthProvider(provider)) {
+    return { provider, address, accessToken: await oauthAccessToken(env, { ...account, id, provider }) };
+  }
+  return { provider, address, authorizationCode: await openCredential(env, account) };
 }
