@@ -88,7 +88,8 @@ export async function startOAuth(env: Env, request: Request, provider: OAuthProv
     if (!account) throw new HttpError(404, 'mail_account_missing', '这个邮箱账号不存在。');
     accountId = account.id;
   }
-  const state = randomToken();
+  const mobile = request.headers.get('X-Agentic-Mailbox-Client') === 'mobile';
+  const state = (mobile ? 'm.' : '') + randomToken();
   const verifier = randomToken();
   const now = Date.now();
   await env.DB.batch([
@@ -115,9 +116,11 @@ export function oauthCallback(env: Env, url: URL, provider: OAuthProvider) {
     const value = url.searchParams.get(name);
     if (value && value.length <= 4096) fragment.set(name, value);
   }
+  const location = /^m\.[A-Za-z0-9_-]{43}$/.test(fragment.get('state') ?? '')
+    ? 'agentic-mailbox://oauth?' + fragment : '/#' + fragment;
   return new Response(null, {
     status: 303,
-    headers: { Location: `/#${fragment}`, 'Cache-Control': 'no-store' },
+    headers: { Location: location, 'Cache-Control': 'no-store' },
   });
 }
 
@@ -217,7 +220,7 @@ export async function finishOAuth(
   const config = requireConfig(env, provider);
   checkOrigin(new URL(request.url), config.callback);
   const { state, code, error } = body ?? {};
-  if (typeof state !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(state)) {
+  if (typeof state !== 'string' || !/^(?:m\.)?[A-Za-z0-9_-]{43}$/.test(state)) {
     throw new HttpError(400, 'oauth_state_invalid', '邮箱授权已过期或无效，请从邮箱设置重新开始。');
   }
   const flow = await env.DB.prepare(`DELETE FROM oauth_flows WHERE state = ?1 AND provider = ?2

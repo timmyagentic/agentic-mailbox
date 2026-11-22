@@ -1,9 +1,11 @@
 import { chatGPTCallback } from './chatgpt';
 import { routeMember } from './members';
+import { SESSION_COOKIE } from './auth';
 import { handleApi } from './api';
-import { apiError, HttpError, withSecurityHeaders } from './http';
+import { apiError, HttpError, json, withSecurityHeaders } from './http';
 import { ingestEmail } from './mail';
 import { elapsedMs, logEvent, requestMethod, requestRoute } from './logging';
+import type { SessionPayload } from '../shared/types';
 import type { EmailWorkerMessage, Env } from './types';
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
@@ -26,7 +28,28 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     return chatGPTCallback(url);
   }
   if (url.pathname.startsWith('/api/')) {
-    return await routeMember(request, env) ?? handleApi(request, env);
+    const mobile = request.headers.get('X-Agentic-Mailbox-Client') === 'mobile';
+    if (mobile) {
+      const headers = new Headers(request.headers);
+      const token = headers.get('Authorization')?.match(/^Bearer ([A-Za-z0-9._:-]{20,2048})$/)?.[1];
+      headers.delete('Authorization');
+      // Native requests carry their own session and cannot use ambient browser cookies.
+      headers.delete('Cookie');
+      if (token) headers.set('Cookie', SESSION_COOKIE + '=' + token);
+      request = new Request(request, { headers });
+    }
+    const response = await routeMember(request, env) ?? await handleApi(request, env);
+    const login = ['/api/session', '/api/members/login', '/api/members/register'].includes(url.pathname);
+    if (mobile && login && request.method === 'POST' && response.ok) {
+      const cookie = response.headers.get('Set-Cookie')?.split(';', 1)[0] ?? '';
+      const payload = await response.json<SessionPayload>();
+      const prefix = `${SESSION_COOKIE}=`;
+      if (payload.authenticated && cookie.startsWith(prefix)) {
+        return json({ ...payload, sessionToken: cookie.slice(prefix.length) });
+      }
+      return json(payload);
+    }
+    return response;
   }
 
   if (request.method !== 'GET' && request.method !== 'HEAD') {

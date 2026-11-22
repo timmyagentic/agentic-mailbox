@@ -113,6 +113,7 @@ export type SessionPayload = {
   chatGPTLogin?: boolean;
   edition?: 'local' | 'hosted';
   authenticated: boolean;
+  sessionToken?: string;
   user: { email: string } | null;
 };
 
