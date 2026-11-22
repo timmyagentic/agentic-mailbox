@@ -108,7 +108,10 @@ export default function Mailbox({ token, user, onLogout }: { token: string; user
   const [refreshing, setRefreshing] = useState(false);
   const refreshLock = useRef(false);
   const revision = useRef(0);
-  const senders = bootstrap?.recentAliases.filter(alias => alias.status === 'active') || [];
+  const mailAccounts = bootstrap?.mailAccounts ?? [];
+  const aliases = bootstrap?.recentAliases ?? [];
+  const senders = [...mailAccounts, ...aliases.filter(alias => alias.status === 'active')];
+  const sources = [...mailAccounts, ...aliases];
 
   const loadBootstrap = useCallback(async () => {
     const [value, { aliases }] = await Promise.all([api.bootstrap(), api.aliases()]);
@@ -211,7 +214,7 @@ export default function Mailbox({ token, user, onLogout }: { token: string; user
     {folder !== 'drafts' && <>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         <Action label="全部邮箱" primary={!source} onPress={() => setSource('')} />
-        {bootstrap?.recentAliases.map(alias => <Action key={alias.id} label={alias.address} primary={source === alias.id} onPress={() => setSource(alias.id)} />)}
+        {sources.map(alias => <Action key={alias.id} label={alias.address} primary={source === alias.id} onPress={() => setSource(alias.id)} />)}
       </ScrollView>
       <View style={[styles.row, { alignItems: 'flex-end' }]}>
         <View style={{ flex: 1 }}>

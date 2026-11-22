@@ -8,7 +8,7 @@ import { message, type MobileApi } from './api';
 import { Action, Field, Header, Notice, styles } from './ui';
 
 export default function Compose({ api, initial, senders, aiEnabled, close }: {
-  api: MobileApi; initial: DraftInput | MailDraft; senders: MailAlias[]; aiEnabled: boolean; close: (notice?: string) => void;
+  api: MobileApi; initial: DraftInput | MailDraft; senders: Pick<MailAlias, 'id' | 'address'>[]; aiEnabled: boolean; close: (notice?: string) => void;
 }) {
   const existing = 'id' in initial ? initial : null;
   const [input, setInput] = useState<DraftInput>(initial);
