@@ -117,6 +117,10 @@ curl --request POST 'http://localhost:8787/cdn-cgi/handler/email' \
   --data-binary @message.eml
 ```
 
+## Release verification
+
+Push a version tag such as `v0.1.0` from the commit you intend to release. Wait for the tag's [CI run](https://github.com/timmyagentic/agentic-mailbox/actions/workflows/ci.yml) to pass `verify` before publishing the version, uploading its Mac archive, or deploying it to Cloudflare. Use the tagged commit for each of those steps.
+
 ## Production resources
 
 The checked-in Wrangler configuration binds these isolated resources:
