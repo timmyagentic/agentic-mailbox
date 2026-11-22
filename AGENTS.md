@@ -12,4 +12,4 @@
 ## Continuous integration
 
 - Run one Ubuntu `verify` job on Node 24 when a `v*` tag is pushed. Pull requests and branch pushes do not trigger this workflow. After `npm ci`, use the existing `npm run check` entry point for lint, typecheck, tests, build and Worker dry-run.
-- Wait for the exact tagged commit to pass `verify` before publishing a release or deploying that version. No extra version matrix or duplicate build pipeline is needed. Dry-run does not migrate D1, deploy the Worker or send real mail.
+- Version tags on main publish a GitHub Release after the checks and the packaged Mac launcher pass. Cloudflare deployment is a separate operation. The verification and packaging jobs use Worker dry-run and do not run production migrations.
