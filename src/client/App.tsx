@@ -342,6 +342,7 @@ export default function App() {
     <>
       <Suspense fallback={<main className="boot-screen"><div className="brand-loader"><span className="spinner" />正在加载邮箱</div></main>}>
         <InboxWorkbench
+          userLabel={bootstrap?.local ? '本机用户' : bootstrap?.externalOnly ? bootstrap.adminEmail : '管理员'}
           aiEnabled={edition !== 'local'}
           appName={appName}
           primaryDomain={primaryDomain}

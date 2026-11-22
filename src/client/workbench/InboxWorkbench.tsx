@@ -29,7 +29,7 @@ const PAGE_SIZE = 25;
 const ComposePanel = lazy(() => import('./ComposePanel'));
 
 type Props = {
-  aiEnabled: boolean; appName: string; primaryDomain: string; activeView: ViewName; selectedId: string | null;
+  aiEnabled: boolean; userLabel: string; appName: string; primaryDomain: string; activeView: ViewName; selectedId: string | null;
   aliases: MailAlias[]; accounts: MailAccount[]; revision: EmailSummary[]; unread: number; refreshing: boolean;
   onNavigate: (view: ViewName) => void; onConnectMailbox: () => void; onSelect: (id: string | null) => void;
   onRefresh: () => Promise<void>; onReload: () => Promise<void>; onLogout: () => void;
@@ -65,7 +65,7 @@ function editorFrom(draft: MailDraft): Composer {
 }
 
 export default function InboxWorkbench({
-  aiEnabled, appName, primaryDomain, activeView, selectedId, aliases, accounts, revision, unread, refreshing,
+  aiEnabled, userLabel, appName, primaryDomain, activeView, selectedId, aliases, accounts, revision, unread, refreshing,
   onNavigate, onConnectMailbox, onSelect, onRefresh, onReload, onLogout, onError, onNotice, children,
 }: Props) {
   const [folder, setFolder] = useState<Folder>('inbox');
@@ -281,7 +281,7 @@ export default function InboxWorkbench({
           </div>
         </nav>
         <div className="flex gap-2 items-center border-t border-kumo-line p-3">
-          <span className="text-xs text-kumo-subtle flex-1 truncate">管理员</span>
+          <span className="text-xs text-kumo-subtle flex-1 truncate">{userLabel}</span>
           <IconButton label="退出登录" icon={<SignOutIcon size={18} />} onClick={onLogout} />
         </div>
       </aside>
