@@ -68,7 +68,7 @@ jobs:
           bash scripts/check-mac-package.sh outputs/agentic-mailbox-mac-arm64.zip
           cd outputs
           shasum -a 256 agentic-mailbox-mac-arm64.zip > SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac-arm64
           if-no-files-found: error
@@ -86,7 +86,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: mac-arm64
           path: release-assets
