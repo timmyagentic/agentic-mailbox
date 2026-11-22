@@ -27,13 +27,13 @@ export function LoginView({ error, busy, onLogin }: LoginViewProps) {
 
   return (
     <main className="login-page">
-      <aside className="login-story" aria-labelledby="vault-title">
+      <aside className="login-story" aria-labelledby="mailbox-title">
         <div className="login-brand">
           <div className="brand-mark brand-mark--large" aria-hidden="true">
             <Archive size={28} />
           </div>
           <div>
-            <h1 id="vault-title">Mailbox Vault</h1>
+            <h1 id="mailbox-title">Agentic Mailbox</h1>
             <p>邮箱资产管理</p>
           </div>
         </div>

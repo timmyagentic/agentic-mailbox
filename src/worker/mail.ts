@@ -217,8 +217,8 @@ async function processEmail(
   let forwarding: 'disabled' | 'succeeded' | 'failed' = 'disabled';
   if (env.FORWARD_TO) {
     const traceHeaders = new Headers({
-      'X-Mailbox-Vault-Original-To': recipient,
-      'X-Mailbox-Vault-Email-Id': emailId,
+      'X-Agentic-Mailbox-Original-To': recipient,
+      'X-Agentic-Mailbox-Email-Id': emailId,
     });
     try {
       await message.forward(env.FORWARD_TO, traceHeaders);

@@ -1,4 +1,4 @@
-# Mailbox Vault Goal
+# Agentic Mailbox Goal
 
 ## 推荐执行版（中文，可直接复制）
 
