@@ -1,6 +1,6 @@
 import type { SessionPayload } from '../shared/types';
 
-const SESSION_COOKIE = 'agentic_mailbox_session';
+export const SESSION_COOKIE = 'agentic_mailbox_session';
 const LEGACY_SESSION_COOKIE = 'mailbox_vault_session';
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
 

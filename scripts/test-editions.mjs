@@ -44,6 +44,24 @@ try {
   const a = await identity('member-a', true);
   const b = await identity('member-b', true);
   const idA = await identity('member-a', false);
+  const mobileClient = { 'X-Agentic-Mailbox-Client': 'mobile' };
+  const mobileLogin = await request('/api/members/login', '', {
+    username: 'member-a', password: 'fixture-secret-password',
+  }, 'POST', mobileClient);
+  const mobileSession = await mobileLogin.json();
+  assert.match(mobileSession.sessionToken, /^member:member-a:/);
+  assert.equal(mobileLogin.headers.get('Set-Cookie'), null);
+  const mobile = { ...mobileClient, Authorization: 'Bearer ' + mobileSession.sessionToken };
+  assert.equal((await (await request('/api/session', b, undefined, 'GET', mobile)).json()).user.email, 'member-a');
+  assert.equal((await (await request('/api/session', a, undefined, 'GET', mobileClient)).json()).authenticated, false);
+  const adminLogin = await request('/api/session', '', {password:'owner-test-password'}, 'POST', mobileClient);
+  const adminSession = await adminLogin.json();
+  assert.equal(adminSession.authenticated, true);
+  const admin = { ...mobileClient, Authorization: 'Bearer ' + adminSession.sessionToken };
+  assert.equal((await (await request('/api/session', '', undefined, 'GET', admin)).json()).user.email, 'owner@example.com');
+  const webLogin = await request('/api/members/login', '', {username:'member-b',password:'fixture-secret-password'});
+  assert.ok(webLogin.headers.get('Set-Cookie'));
+  assert.equal((await webLogin.json()).sessionToken, undefined);
   assert.match(idA, /^agentic_mailbox_session=/);
   const legacy = idA.replace(/^agentic_mailbox_session=/, 'mailbox_vault_session=');
   assert.equal((await request('/api/session', legacy)).status, 200);
@@ -88,6 +106,20 @@ try {
   assert.match((await bucket.list()).objects[0].key, /^members\/[a-f0-9]+\/drafts\//);
   assert.equal((await (await request('/api/drafts', b)).json()).drafts.length, 0);
   assert.equal((await (await request(path, a)).json()).draft.files.length, 1);
+  const mobileStart = await request('/api/oauth/gmail/start', '', {}, 'POST', mobile);
+  const nativeState = new URL((await mobileStart.json()).url).searchParams.get('state');
+  assert.match(nativeState, /^m\.[A-Za-z0-9_-]{43}$/);
+  const mobileCallback = await runtime.dispatchFetch(origin + '/api/oauth/gmail/callback?state=' + nativeState + '&code=fixture', {
+    redirect: 'manual',
+  });
+  const deepLink = new URL(mobileCallback.headers.get('Location'));
+  assert.equal(deepLink.protocol, 'agentic-mailbox:');
+  assert.equal(deepLink.hostname, 'oauth');
+  assert.equal(deepLink.searchParams.get('state'), nativeState);
+  assert.equal(deepLink.searchParams.get('mailOAuth'), 'gmail');
+  assert.equal((await request('/api/oauth/gmail/finish', b, {state:nativeState,code:'fixture'})).status, 400);
+  assert.equal((await request('/api/oauth/gmail/finish', '', {state:nativeState,code:'fixture'}, 'POST', mobile)).status, 200);
+  console.log('Mobile bearer login, browser session isolation and native OAuth callback passed.');
   const begin = await (await request('/api/oauth/gmail/start', a, {})).json();
   const state = new URL(begin.url).searchParams.get('state');
   const finish = { state, code: 'test-code' };

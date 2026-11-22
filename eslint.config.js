@@ -3,13 +3,13 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', '.wrangler/**', 'worker-configuration.d.ts'] },
+  { ignores: ['dist/**', 'node_modules/**', 'mobile/node_modules/**', 'mobile/android/**', 'mobile/ios/**', 'mobile/.expo/**', '.wrangler/**', 'worker-configuration.d.ts'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/client/**/*.{ts,tsx}'],
+    files: ['src/client/**/*.{ts,tsx}', 'mobile/src/**/*.{ts,tsx}'],
     languageOptions: {
-      globals: globals.browser,
+      globals: { ...globals.browser, process: 'readonly', __DEV__: 'readonly' },
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
@@ -21,6 +21,7 @@ export default tseslint.config(
       globals: globals.serviceworker,
     },
   },
+  { files: ['mobile/*.cjs'], languageOptions: { globals: globals.node }, rules: { '@typescript-eslint/no-require-imports': 'off' } },
   {
     files: ['scripts/*.mjs', 'tests/**/*.ts', 'vite.config.ts', 'vitest.config.ts'],
     languageOptions: {

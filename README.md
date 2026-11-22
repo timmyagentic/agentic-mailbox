@@ -10,6 +10,14 @@ For a source checkout, install Node 22.12 or newer, run `npm ci`, then `npm star
 
 Gmail can connect using an account's 16-character app password when Google offers that option. QQ/Foxmail and 163 use their own client authorization codes. To use personal OAuth clients, run **配置本机 OAuth.command** on macOS, or set the corresponding client ID and secret pairs in `oauth.json` in the local data directory. Register `http://127.0.0.1:8787/api/oauth/gmail/callback` and/or `http://127.0.0.1:8787/api/oauth/outlook/callback` with your own provider apps. Restart after changes. The local runtime has no cloud storage, forwarding, Workers AI or managed domain sending bindings.
 
+### Signed Mac disk image
+
+The Apple Silicon DMG wraps the local ZIP in an app bundle with a Finder launcher. Build the ZIP first, then run `scripts/package-dmg.sh` with `AGENTIC_MAC_SIGN_IDENTITY` set to your Developer ID Application identity. Set `AGENTIC_MAC_NOTARY_PROFILE` to a local `notarytool` Keychain profile to notarize and staple the DMG. Output is written under `outputs/`. Drag the app to Applications and open it to start the same loopback mailbox with the existing local data.
+
+## Mobile app
+
+The [React Native app](mobile/README.md) connects to a hosted Agentic Mailbox Worker. It shares the inbox, account, draft and send APIs with the web client.
+
 ## Hosted accounts
 
 Register a username and password on the hosted site to create a private mailbox space. Each member has a SQLite Durable Object, a distinct R2 object prefix, and independently authorized external accounts. Choose a unique password and save it in your password manager. The original administrator workspace uses its existing password or device certificate and retains the managed domain, delivery rules and D1 data. Hosted provider credentials are provisioned once by the site operator. Availability still depends on provider consent policies and API enablement.

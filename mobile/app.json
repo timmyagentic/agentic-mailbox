@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Agentic Mailbox",
+    "slug": "agentic-mailbox",
+    "version": "0.0.1",
+    "scheme": "agentic-mailbox",
+    "orientation": "portrait",
+    "ios": { "bundleIdentifier": "si.timmyagentic.mailbox" },
+    "android": { "package": "si.timmyagentic.mailbox" },
+    "plugins": ["expo-secure-store", "expo-sharing", "expo-web-browser"]
+  }
+}

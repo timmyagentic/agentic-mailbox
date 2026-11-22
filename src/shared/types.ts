@@ -109,6 +109,7 @@ export type BootstrapPayload = {
 export type SessionPayload = {
   edition?: 'local' | 'hosted';
   authenticated: boolean;
+  sessionToken?: string;
   user: { email: string } | null;
 };
 
