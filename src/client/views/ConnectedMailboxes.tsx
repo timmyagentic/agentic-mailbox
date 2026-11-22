@@ -162,6 +162,23 @@ type DialogProps = Pick<Props, 'local' | 'oauthProviders' | 'onAuthorize' | 'onS
 
 function ConnectDialog({ selection, local, oauthProviders, onSelect, onClose, onAuthorize, onSave }: DialogProps) {
   const stepRef = useRef<HTMLDivElement>(null);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [authorizationError, setAuthorizationError] = useState('');
+  const authorize = async (provider: OAuthProvider, accountId?: string) => {
+    setAuthorizing(true);
+    setAuthorizationError('');
+    try {
+      await onAuthorize(provider, accountId);
+    } catch (error) {
+      setAuthorizationError(error instanceof Error ? error.message : '暂时无法打开授权，请再试一次。');
+    } finally {
+      setAuthorizing(false);
+    }
+  };
+  const select = (next: Selection | null) => {
+    setAuthorizationError('');
+    onSelect(next);
+  };
   const choices: readonly MailProvider[] = local ? ['gmail_app', ...providers.filter(p => p !== 'gmail' || oauthProviders.includes('gmail'))] : providers;
   const step = selection?.provider;
   useEffect(() => { stepRef.current?.focus(); }, [step]);
@@ -175,14 +192,15 @@ function ConnectDialog({ selection, local, oauthProviders, onSelect, onClose, on
       {provider ? (
         <div ref={stepRef} className="mailbox-connect-step" tabIndex={-1} role="group" aria-label={title}>
           {!selection?.account ? (
-            <button className="mailbox-connect-back" type="button" onClick={() => onSelect(null)}>
+            <button className="mailbox-connect-back" type="button" onClick={() => select(null)}>
               <ArrowLeft size={15} aria-hidden="true" /> 选择其他邮箱
             </button>
           ) : <p className="mailbox-connect-note">{selection.account.address}</p>}
           {isOAuth(provider) ? (
             <OAuthSetup
               key={provider} provider={provider} ready={oauthProviders.includes(provider)}
-              accountId={selection?.account?.id} onAuthorize={onAuthorize}
+              pending={authorizing} error={authorizationError}
+              onProceed={() => { void authorize(provider, selection?.account?.id); }}
             />
           ) : (
             <ImapSetup key={provider} provider={provider} address={selection?.account?.address} onSave={onSave} onClose={onClose} />
@@ -194,11 +212,15 @@ function ConnectDialog({ selection, local, oauthProviders, onSelect, onClose, on
           <ul className="mailbox-connect-providers">
             {choices.map((option) => {
               const available = !isOAuth(option) || oauthProviders.includes(option);
-              const label = <span><strong>{names[option]}</strong><small>{providerDetails[option]}</small></span>;
+              const directOutlook = option === 'outlook' && local;
+              const details = directOutlook && available ? '前往微软授权个人 Outlook 或 Microsoft 365' : providerDetails[option];
+              const label = <span><strong>{names[option]}</strong><small>{details}</small></span>;
               return (
                 <li key={option}>
                   {available ? (
-                    <button className="mailbox-connect-option" type="button" onClick={() => onSelect({ provider: option })}>
+                    <button className="mailbox-connect-option" type="button" disabled={authorizing}
+                      onClick={() => { if (directOutlook) void authorize('outlook'); else select({ provider: option }); }}
+                    >
                       {label}<ChevronRight size={17} aria-hidden="true" />
                     </button>
                   ) : (
@@ -210,37 +232,29 @@ function ConnectDialog({ selection, local, oauthProviders, onSelect, onClose, on
               );
             })}
           </ul>
+          {authorizing ? <p role="status" className="mailbox-connect-note">正在打开微软授权…</p> : null}
+          {authorizationError ? <p role="alert" className="mailbox-connect-error">{authorizationError}</p> : null}
         </div>
       )}
     </Modal>
   );
 }
 
-function OAuthSetup({
-  provider, ready, accountId, onAuthorize,
-}: Pick<Props, 'onAuthorize'> & { provider: OAuthProvider; ready: boolean; accountId?: string }) {
+function OAuthSetup({ provider, ready, pending, error, onProceed }: {
+  provider: OAuthProvider;
+  ready: boolean;
+  pending: boolean;
+  error: string;
+  onProceed: () => void;
+}) {
   const brand = oauthBrand[provider];
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState('');
-  const proceed = async () => {
-    setPending(true);
-    setError('');
-    try {
-      await onAuthorize(provider, accountId);
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : '暂时无法继续，请再试一次。');
-    } finally {
-      setPending(false);
-    }
-  };
-
   if (!ready) return <p>{names[provider]} 暂不可用，请联系站点维护者。</p>;
   return (
     <div className="mailbox-connect-body">
       <p>在 {brand} 页面选择要接入的邮箱，并允许 Agentic Mailbox 读取和发送邮件。授权后会自动同步。</p>
       {error ? <p role="alert" className="mailbox-connect-error">{error}</p> : null}
       <div className="mailbox-connect-actions">
-        <button className="button button--primary" type="button" disabled={pending} onClick={() => void proceed()}>
+        <button className="button button--primary" type="button" disabled={pending} onClick={onProceed}>
           {pending ? '正在打开授权页…' : `使用 ${brand} 继续`}
         </button>
       </div>

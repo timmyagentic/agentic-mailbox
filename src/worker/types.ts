@@ -4,6 +4,8 @@ export interface Env {
   MEMBERS?: DurableObjectNamespace;
   MEMBER_AUTH_LIMIT?: RateLimit;
   LOCAL_MODE?: string;
+  CHATGPT?: Fetcher;
+  LOCAL_CODEX?: Fetcher;
   EXTERNAL_ONLY?: boolean;
   DB: MailDatabase;
   ATTACHMENTS: MailBucket;
@@ -21,6 +23,7 @@ export interface Env {
   GMAIL_CLIENT_SECRET?: string;
   OUTLOOK_CLIENT_ID?: string;
   OUTLOOK_CLIENT_SECRET?: string;
+  OUTLOOK_DESKTOP_CLIENT_ID?: string;
   EMAIL?: SendEmail;
   AI?: Ai;
 }

@@ -219,6 +219,19 @@ it('keeps setup out of the add dialog and offers OAuth only for configured provi
   expect(within(dialog).queryByLabelText('客户端授权码')).toBeNull();
 });
 
+it('starts Microsoft authorization immediately when selecting Outlook on desktop', async () => {
+  vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [] });
+  vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, local: true, oauthProviders: ['outlook'] });
+  vi.mocked(mailboxApi.startMailOAuth).mockRejectedValue(new Error('无法打开微软授权页'));
+  render(<App />);
+
+  fireEvent.click(await screen.findByRole('button', { name: '接入邮箱' }));
+  const dialog = screen.getByRole('dialog', { name: '接入邮箱' });
+  fireEvent.click(within(dialog).getByRole('button', { name: /Outlook/ }));
+  expect(mailboxApi.startMailOAuth).toHaveBeenCalledExactlyOnceWith('outlook', undefined);
+  expect((await within(dialog).findByRole('alert')).textContent).toBe('无法打开微软授权页');
+});
+
 it('retries a cancelled reauthorization for the original account', async () => {
   const account = { id: 'existing-outlook', address: 'owner@outlook.com', provider: 'outlook' as const, lastSyncAt: null };
   vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts: [account], oauthProviders: ['outlook'] });

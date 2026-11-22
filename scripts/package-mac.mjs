@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, dirname, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
@@ -15,9 +15,16 @@ const copy = (from, to) => {
   cpSync(from, to, { recursive: true, dereference: true, filter: path => !path.endsWith('.map') && !path.endsWith('/node_modules') });
 };
 try {
-  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
+  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/chatgpt-local.mjs', 'scripts/codex-connection.mjs', 'scripts/local-device-auth.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
     '打开本地邮箱.command', '配置本机 OAuth.command', 'LICENSE', 'LICENSE.agentic-inbox', '.wrangler/local-worker']) {
     copy(join(root, item), join(app, item));
+  }
+  const outlookClientId = process.env.AGENTIC_MAILBOX_OUTLOOK_CLIENT_ID?.trim();
+  if (outlookClientId) {
+    if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(outlookClientId)) {
+      throw new Error('AGENTIC_MAILBOX_OUTLOOK_CLIENT_ID must be a Microsoft application (client) ID.');
+    }
+    writeFileSync(join(app, 'local', 'outlook-client-id.txt'), outlookClientId + '\n');
   }
   copy(join(root, 'local/README.md'), join(app, '使用说明.md'));
   copy(process.execPath, join(app, 'runtime/node'));
@@ -33,7 +40,7 @@ try {
     copy(source, join(app, relative(root, source)));
     for (const dependency of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies })) include(dependency, source);
   }
-  include('miniflare', root);
+  for (const name of ['miniflare', 'jose', 'openai']) include(name, root);
   // npm installs two copies of the identical workerd executable on macOS.
   const workerdBin = join(app, 'node_modules/workerd/bin/workerd');
   rmSync(workerdBin);

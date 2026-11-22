@@ -184,3 +184,30 @@ See [Operational diagnostics](docs/diagnostics.md) for event fields, error IDs, 
 
 Agentic Mailbox's original code is available under the [MIT License](LICENSE).
 The [upstream Agentic Inbox notice](LICENSE.agentic-inbox) and licenses for other third-party components apply to their respective materials.
+
+## Codex plugin
+
+With [uv](https://docs.astral.sh/uv/) installed, add the desktop plugin from this repository:
+
+```sh
+codex plugin marketplace add timmyagentic/agentic-mailbox
+codex plugin add agentic-mailbox@agentic-mailbox-tools
+```
+
+For this Mac's inbox, sign in to Agentic Mailbox and select **邮箱设置 → 授权本机 Codex 插件**. This grants the plugin a separate expiring mailbox session under the `local` profile (or `local-PORT` if using another port). Reconnect there when it expires.
+
+You can also connect an instance from your own terminal in a checkout of this repository:
+
+```sh
+python3 plugins/agentic-mailbox/skills/agentic-mailbox/scripts/mailbox.py login --origin http://127.0.0.1:8787 --admin
+```
+
+For a hosted member use its HTTPS origin and `--username YOUR_USER`. For custom-domain administration use the authorized hosting administrator session. The local edition manages connected external providers. Use the hosted routing instance for addresses handled by that instance. Use separate named sessions (for example `--profile local` and `--profile domain` before `login`) to manage both instances from Codex. The plugin works within those same permissions. Start with “List my mailbox accounts and domain aliases.” Search and read conversations, refresh mail, or prepare a reply or forward. Sending requires an explicit request. See the [mailbox Skill](plugins/agentic-mailbox/skills/agentic-mailbox/SKILL.md).
+
+## Sign in with ChatGPT on the local edition
+
+Sign in to your existing local mailbox, open **邮箱设置 → ChatGPT → Continue with ChatGPT**, and authorize the connection in your browser. Subsequent sign-ins can unlock this local mailbox with the same verified ChatGPT identity. Disconnect in mailbox settings to remove the local binding. Password login remains available.
+
+Eligible accounts can separately authorize ChatGPT plan usage for draft suggestions. Generating a suggestion sends the instruction, draft text and relevant thread excerpts to OpenAI and consumes the selected account's plan usage. Generation leaves the outgoing message in Drafts. The local process keeps encrypted credentials in the mailbox data directory and uses the first available listed model. Mail provider authorizations and the Codex plugin session are independent.
+
+This integration implements the [documented local registration protocol](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) and the [streaming Responses integration](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference). The hosted edition uses its existing login. Website identity-only sign-in requires its own provisioned client.

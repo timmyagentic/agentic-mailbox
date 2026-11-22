@@ -1,4 +1,6 @@
 import type { BootstrapPayload, DraftInput } from '../shared/types';
+import { chatGPTRoute, localChatGPT } from './chatgpt';
+import type { ChatGPTConnection } from '../shared/types';
 import { listMailAccounts, refreshMailAccount, saveMailAccount } from './accounts';
 import {
   clearedSessionCookies,
@@ -96,7 +98,9 @@ async function handleCertificateLogin(request: Request, env: Env): Promise<Respo
 
 async function handleSession(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET') {
-    return json({ ...await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS),
+    const chatGPTLogin = env.LOCAL_MODE === '1' && env.CHATGPT
+      ? (await localChatGPT<ChatGPTConnection>(env, 'status').catch(() => null))?.linked : false;
+    return json({ chatGPTLogin, ...await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS),
       ...(env.MEMBERS ? { edition: 'hosted' } : env.LOCAL_MODE === '1' ? { edition: 'local' } : {}) });
   }
 
@@ -137,6 +141,7 @@ async function bootstrap(env: Env): Promise<Response> {
     recentAliases,
     mailAccounts,
     local: env.LOCAL_MODE === '1',
+    ...(env.LOCAL_MODE === '1' && env.CHATGPT ? { chatGPT: await localChatGPT<ChatGPTConnection>(env, 'status').catch(() => undefined) } : {}),
     externalOnly: Boolean(env.EXTERNAL_ONLY || env.LOCAL_MODE === '1'),
     oauthProviders: configuredOAuthProviders(env),
   } satisfies BootstrapPayload);
@@ -189,6 +194,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     return health(env);
   }
 
+  if (pathname.startsWith('/api/chatgpt/')) {
+    return chatGPTRoute(request, env, () => startAdminSession(request, env));
+  }
   if (pathname === '/api/session') {
     return handleSession(request, env);
   }
@@ -213,6 +221,17 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   }
 
   await requireSession(request, env);
+  if (pathname === '/api/codex/connect' && env.LOCAL_MODE === '1' && env.LOCAL_CODEX && request.method === 'POST') {
+    assertSameOrigin(request);
+    await readJson(request);
+    const token = await createSessionToken(env.ADMIN_EMAIL, env.SESSION_SECRET);
+    const cookie = sessionCookie(token, request.url).split(';')[0];
+    const connected = await env.LOCAL_CODEX.fetch('https://local-codex.internal/connect', {
+      method: 'POST', body: JSON.stringify({ cookie }),
+    });
+    if (!connected.ok) throw new HttpError(503, 'codex_pair_failed', '无法保存本机 Codex 插件会话。');
+    return json(await connected.json<{ profile: string }>());
+  }
   if ((env.EXTERNAL_ONLY || env.LOCAL_MODE === '1') && request.method !== 'GET' && (pathname === '/api/aliases' || pathname.startsWith('/api/aliases/'))) {
     throw new HttpError(403, 'managed_domain_only', '此空间只支持连接外部邮箱。');
   }

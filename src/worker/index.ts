@@ -1,3 +1,4 @@
+import { chatGPTCallback } from './chatgpt';
 import { routeMember } from './members';
 import { handleApi } from './api';
 import { apiError, HttpError, withSecurityHeaders } from './http';
@@ -20,6 +21,9 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="agentic-mailbox-mac-arm64.zip"',
       'Content-Length': String(archive.size), 'ETag': archive.httpEtag,
     } });
+  }
+  if (env.LOCAL_MODE === '1' && env.CHATGPT && url.pathname === '/auth/callback' && request.method === 'GET') {
+    return chatGPTCallback(url);
   }
   if (url.pathname.startsWith('/api/')) {
     return await routeMember(request, env) ?? handleApi(request, env);

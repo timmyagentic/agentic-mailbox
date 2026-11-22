@@ -3,7 +3,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', '.wrangler/**', 'worker-configuration.d.ts'] },
+  { ignores: ['dist/**', 'outputs/**', 'node_modules/**', '.wrangler/**', 'worker-configuration.d.ts'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -22,7 +22,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['scripts/*.mjs', 'tests/**/*.ts', 'vite.config.ts', 'vitest.config.ts'],
+    files: ['scripts/*.mjs', 'tests/**/*.{ts,mjs}', 'vite.config.ts', 'vitest.config.ts'],
     languageOptions: {
       globals: globals.node,
     },

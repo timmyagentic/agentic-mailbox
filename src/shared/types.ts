@@ -93,7 +93,10 @@ export type MailRefreshResult = {
   requiresReauthorization?: boolean;
 };
 
+export type ChatGPTConnection = { linked: boolean; email: string; planEnabled: boolean };
+
 export type BootstrapPayload = {
+  chatGPT?: ChatGPTConnection;
   appName: string;
   primaryDomain: string;
   adminEmail: string;
@@ -107,6 +110,7 @@ export type BootstrapPayload = {
 };
 
 export type SessionPayload = {
+  chatGPTLogin?: boolean;
   edition?: 'local' | 'hosted';
   authenticated: boolean;
   user: { email: string } | null;
