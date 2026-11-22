@@ -29,7 +29,7 @@ const PAGE_SIZE = 25;
 const ComposePanel = lazy(() => import('./ComposePanel'));
 
 type Props = {
-  appName: string; primaryDomain: string; activeView: ViewName; selectedId: string | null;
+  aiEnabled: boolean; appName: string; primaryDomain: string; activeView: ViewName; selectedId: string | null;
   aliases: MailAlias[]; accounts: MailAccount[]; revision: EmailSummary[]; unread: number; refreshing: boolean;
   onNavigate: (view: ViewName) => void; onConnectMailbox: () => void; onSelect: (id: string | null) => void;
   onRefresh: () => Promise<void>; onReload: () => Promise<void>; onLogout: () => void;
@@ -65,7 +65,7 @@ function editorFrom(draft: MailDraft): Composer {
 }
 
 export default function InboxWorkbench({
-  appName, primaryDomain, activeView, selectedId, aliases, accounts, revision, unread, refreshing,
+  aiEnabled, appName, primaryDomain, activeView, selectedId, aliases, accounts, revision, unread, refreshing,
   onNavigate, onConnectMailbox, onSelect, onRefresh, onReload, onLogout, onError, onNotice, children,
 }: Props) {
   const [folder, setFolder] = useState<Folder>('inbox');
@@ -228,7 +228,7 @@ export default function InboxWorkbench({
         <ComposePanel key={composeKey} composer={composer} senders={senders} busy={busy}
         onChange={(changes: Partial<DraftInput>) => setComposer((value) => value ? { ...value, input: { ...value.input, ...changes } } : value)}
         onSave={() => save(false)} onSend={() => save(true)} onClose={() => setComposer(null)}
-        onDiscard={discard} onUpload={upload} onRemove={remove} onAI={() => setAgentOpen(true)} />
+        onDiscard={discard} onUpload={upload} onRemove={remove} onAI={aiEnabled ? () => setAgentOpen(true) : undefined} />
       </Suspense> : null}
       {selectedId ? <MailReader data={data} selectedId={selectedId} folder={folder}
         starred={Boolean(listed.conversations.find((mail) => mail.id === selectedId)?.starred)} onClose={() => onSelect(null)}
@@ -301,8 +301,8 @@ export default function InboxWorkbench({
             <input type="checkbox" checked={onlyUnread} onChange={(event) => { setOnlyUnread(event.target.checked); setPage(1); }} /> 仅未读
           </label>
           <div className="flex items-center gap-1 ml-auto shrink-0">
-            <IconButton label={agentOpen ? '收起 AI 面板' : '打开 AI 面板'} icon={<RobotIcon size={20} />}
-              active={agentOpen} onClick={() => { if (!isMailView) navigate('inbox'); setAgentOpen((open) => !open); }} />
+            {aiEnabled && <IconButton label={agentOpen ? '收起 AI 面板' : '打开 AI 面板'} icon={<RobotIcon size={20} />}
+              active={agentOpen} onClick={() => { if (!isMailView) navigate('inbox'); setAgentOpen((open) => !open); }} />}
             <IconButton label="邮箱设置" icon={<GearSixIcon size={20} />} onClick={() => navigate(activeView === 'aliases' ? 'inbox' : 'aliases')} />
           </div>
         </header>

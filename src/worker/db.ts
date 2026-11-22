@@ -398,7 +398,7 @@ export async function getAttachmentRow(env: Env, id: string): Promise<Attachment
   return row;
 }
 
-async function count(db: D1Database, sql: string): Promise<number> {
+async function count(db: Env['DB'], sql: string): Promise<number> {
   const row = await db.prepare(sql).first<{ value: number }>();
   return Number(row?.value ?? 0);
 }

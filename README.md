@@ -2,6 +2,20 @@
 
 Mailbox Vault is a private Cloudflare-native inbox for managed aliases on `emomo.net` and connected QQ, NetEase 163, Gmail and Outlook mailboxes. It stores mail metadata and text in D1 and attachments in private R2 storage.
 
+## Run locally
+
+On Apple Silicon macOS, unzip the local download from the hosted login page and double-click **打开本地邮箱.command**. The package contains Node, workerd and the built application. It listens on loopback and opens your browser with a single-use local login. Keep the Terminal window open while using it. The package is distributed as a command-line launcher without Apple notarization.
+
+For a source checkout, install Node 22.12 or newer, run `npm ci`, then `npm start`. The default URL is `http://127.0.0.1:8787`. Stop with Ctrl+C. Set `VAULT_DATA_DIR` and `VAULT_LOCAL_PORT` to customize storage and port. On macOS data persists in `~/Library/Application Support/Mailbox Vault`. Back up this directory including `identity.json`, which contains the login password and encryption key. Restore it with the application stopped.
+
+Gmail can connect using an account's 16-character app password when Google offers that option. QQ/Foxmail and 163 use their own client authorization codes. To use personal OAuth clients, run **配置本机 OAuth.command** on macOS, or set the corresponding client ID and secret pairs in `oauth.json` in the local data directory. Register `http://127.0.0.1:8787/api/oauth/gmail/callback` and/or `http://127.0.0.1:8787/api/oauth/outlook/callback` with your own provider apps. Restart after changes. The local runtime has no cloud storage, forwarding, Workers AI or managed domain sending bindings.
+
+## Hosted accounts
+
+Register a username and password on the hosted site to create a private mailbox space. Each member has a SQLite Durable Object, a distinct R2 object prefix, and independently authorized external accounts. Choose a unique password and save it in your password manager. The original administrator workspace uses its existing password or device certificate and retains the managed domain, delivery rules and D1 data. Hosted provider credentials are provisioned once by the site operator. Availability still depends on provider consent policies and API enablement.
+
+Build the Mac distribution from this repository on Apple Silicon using `npm run build`, `npx wrangler deploy --dry-run --outdir .wrangler/local-worker` and `node scripts/package-mac.mjs`. The archive contains only the allowlisted runtime files and dependencies. The hosted download reads the fixed R2 key `releases/mailbox-vault-mac-arm64.zip`.
+
 ## MVP scope
 
 - Create custom or generated aliases under one managed domain.

@@ -2,6 +2,7 @@ import { ImapFlow, type ImapFlowOptions } from 'imapflow';
 import type { ImapProvider } from '../shared/types';
 
 const hosts: Record<ImapProvider, string> = {
+  gmail_app: 'imap.gmail.com',
   qq: 'imap.qq.com',
   netease163: 'imap.163.com',
 };

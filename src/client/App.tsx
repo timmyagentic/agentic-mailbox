@@ -42,6 +42,7 @@ const EMPTY_STATS: DashboardStats = {
 type Toast = { type: 'success' | 'error'; message: string } | null;
 
 export default function App() {
+  const [edition, setEdition] = useState<'hosted' | 'local'>();
   const [checkingSession, setCheckingSession] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<OAuthProvider | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
@@ -116,6 +117,12 @@ export default function App() {
       .session()
       .then(async (session) => {
         if (!active) return;
+        setEdition(session.edition);
+        const unlock = new URLSearchParams(window.location.hash.slice(1)).get('localUnlock');
+        if (session.edition === 'local' && unlock) {
+          window.history.replaceState(null, '', window.location.pathname);
+          session = await mailboxApi.unlockLocal(unlock);
+        }
         setAuthenticated(session.authenticated);
         const callback = new URLSearchParams(window.location.hash.slice(1));
         const provider = callback.get('mailOAuth');
@@ -159,13 +166,13 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const login = async (password?: string) => {
+  const login = async (password?: string, member?: { username: string; register: boolean }) => {
     setLoginBusy(true);
     setLoginError('');
     try {
       const session = password === undefined
         ? await mailboxApi.loginWithCertificate()
-        : await mailboxApi.login(password);
+        : member ? await mailboxApi.memberLogin(member.username, password, member.register) : await mailboxApi.login(password);
       setAuthenticated(session.authenticated);
       if (session.authenticated) {
         try {
@@ -317,7 +324,7 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return <LoginView error={loginError} busy={loginBusy} onLogin={login} onCertificateLogin={() => login()} />;
+    return <LoginView edition={edition} error={loginError} busy={loginBusy} onLogin={login} onCertificateLogin={() => login()} />;
   }
 
   const stats = bootstrap?.stats ?? EMPTY_STATS;
@@ -335,6 +342,7 @@ export default function App() {
     <>
       <Suspense fallback={<main className="boot-screen"><div className="brand-loader"><span className="spinner" />正在加载邮箱</div></main>}>
         <InboxWorkbench
+          aiEnabled={edition !== 'local'}
           appName={appName}
           primaryDomain={primaryDomain}
           activeView={activeView}
@@ -359,18 +367,18 @@ export default function App() {
               emails={emails}
               aliases={aliases}
               onNavigate={navigate}
-              onCreateAlias={openCreate}
+              onCreateAlias={bootstrap?.externalOnly ? undefined : openCreate}
               onOpenEmail={openEmail}
             />
           ) : null}
           {activeView === 'aliases' ? (
             <div className="page">
-              <ConnectedMailboxes accounts={accounts} results={refreshResults} refreshing={refreshing}
+              <ConnectedMailboxes local={bootstrap?.local} accounts={accounts} results={refreshResults} refreshing={refreshing}
                 oauthProviders={bootstrap?.oauthProviders ?? []} connectOpen={connectOpen} onConnectOpen={setConnectOpen}
                 connectionResult={connectionResult} onDismissResult={() => setConnectionResult(null)}
                 onRefresh={refresh} onSyncConnection={syncConnection} onOpenInbox={() => { setConnectionResult(null); navigate('inbox'); }}
                 onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
-              <AliasesView
+              {!bootstrap?.externalOnly && <AliasesView
                 aliases={aliases}
                 primaryDomain={primaryDomain}
                 createOpen={createOpen}
@@ -379,7 +387,7 @@ export default function App() {
                 onCloseCreate={() => setCreateOpen(false)}
                 onCreate={createAlias}
                 onToggle={toggleAlias}
-              />
+              />}
             </div>
           ) : null}
           {activeView === 'files' ? <FilesView files={files} sources={mailSources} /> : null}

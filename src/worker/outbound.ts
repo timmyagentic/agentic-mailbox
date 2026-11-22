@@ -24,7 +24,7 @@ export class DeliveryError extends Error {
   constructor(readonly retryable: boolean, message: string) { super(message); }
 }
 
-const smtpHosts: Record<ImapProvider, string> = { qq: 'smtp.qq.com', netease163: 'smtp.163.com' };
+const smtpHosts: Record<ImapProvider, string> = { gmail_app: 'smtp.gmail.com', qq: 'smtp.qq.com', netease163: 'smtp.163.com' };
 
 export type Sender = { address: string } & (
   { authorizationCode: string; provider: ImapProvider } | { accessToken: string; provider: OAuthProvider }

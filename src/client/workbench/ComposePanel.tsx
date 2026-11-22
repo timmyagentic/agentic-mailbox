@@ -25,7 +25,7 @@ type Props = {
   onDiscard: () => void;
   onUpload: (files: FileList) => void;
   onRemove: (fileId: string) => void;
-  onAI: () => void;
+  onAI?: () => void;
 };
 
 export default function ComposePanel({
@@ -105,7 +105,7 @@ export default function ComposePanel({
               ] as const).map(([label, icon, handler]) => (
                 <Button key={label} aria-label={label} title={label} type="button" variant="ghost" size="sm" shape="square" icon={icon} onClick={handler} />
               ))}
-              <Button variant="ghost" size="sm" type="button" icon={<RobotIcon size={17} />} className="ml-auto" onClick={onAI}>AI 起草</Button>
+              {onAI && <Button variant="ghost" size="sm" type="button" icon={<RobotIcon size={17} />} className="ml-auto" onClick={onAI}>AI 起草</Button>}
             </div>
             <EditorContent editor={editor} />
           </div>

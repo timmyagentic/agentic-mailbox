@@ -52,9 +52,10 @@ function providerOf(domain: string): ImapProvider | null {
 export async function saveMailAccount(env: Env, input: { email?: unknown; authorizationCode?: unknown }): Promise<MailAccount> {
   const address = typeof input?.email === 'string' ? normalizeAddress(input.email) : null;
   const parts = address?.split('@') ?? [];
-  const provider = providerOf(parts[1]);
+  const googleLocal = env.LOCAL_MODE === '1' && ['gmail.com', 'googlemail.com'].includes(parts[1]);
+  const provider = googleLocal ? 'gmail_app' : providerOf(parts[1]);
   const submittedCode = typeof input?.authorizationCode === 'string' ? input.authorizationCode.trim() : '';
-  const code = provider === 'netease163' ? submittedCode.replace(/\s/g, '') : submittedCode;
+  const code = provider === 'netease163' || googleLocal ? submittedCode.replace(/\s/g, '') : submittedCode;
   if (!address || !provider) throw new HttpError(400, 'invalid_mail_provider', '请输入 QQ 或 163 邮箱地址。');
   if (!/^[a-zA-Z0-9]{16}$/.test(code)) throw new HttpError(400, 'invalid_mail_auth_code', '请输入有效的 16 位客户端授权码。');
 

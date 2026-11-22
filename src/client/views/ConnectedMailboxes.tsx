@@ -17,6 +17,7 @@ type Props = {
   results: MailRefreshResult[];
   refreshing: boolean;
   oauthProviders: OAuthProvider[];
+  local?: boolean;
   connectOpen: boolean;
   onConnectOpen: (open: boolean) => void;
   connectionResult: MailboxConnectionResult | null;
@@ -29,8 +30,9 @@ type Props = {
 };
 
 const providers = ['gmail', 'outlook', 'qq', 'netease163'] as const;
-const names: Record<MailProvider, string> = { gmail: 'Gmail', outlook: 'Outlook', qq: 'QQ 邮箱', netease163: '网易 163 邮箱' };
+const names: Record<MailProvider, string> = { gmail_app: 'Gmail 应用专用密码', gmail: 'Gmail', outlook: 'Outlook', qq: 'QQ 邮箱', netease163: '网易 163 邮箱' };
 const providerDetails: Record<MailProvider, string> = {
+  gmail_app: '直接连接 Google，凭据保存在本机',
   gmail: 'Google 账号',
   outlook: '个人 Outlook 或 Microsoft 365',
   qq: 'QQ 邮箱与 Foxmail',
@@ -40,6 +42,11 @@ const providerDetails: Record<MailProvider, string> = {
 const oauthBrand = { gmail: 'Google', outlook: 'Microsoft' } as const;
 
 const imapSetup = {
+  gmail_app: {
+    help: 'https://myaccount.google.com/apppasswords',
+    instructions: '在 Google 账号开启两步验证，并为本机生成 16 位应用专用密码。',
+    domains: ['gmail.com', 'googlemail.com'], placeholder: 'name@gmail.com',
+  },
   qq: {
     help: 'https://help.mail.qq.com/detail/106/985',
     instructions: '在 QQ 邮箱「账号与安全」中开启 IMAP/SMTP，并生成客户端授权码。',
@@ -61,7 +68,7 @@ function isOAuth(provider: MailProvider): provider is OAuthProvider {
 }
 
 export function ConnectedMailboxes({
-  accounts, results, refreshing, oauthProviders, connectOpen, onConnectOpen, connectionResult, onDismissResult,
+  accounts, results, refreshing, oauthProviders, local, connectOpen, onConnectOpen, connectionResult, onDismissResult,
   onOpenInbox, onSyncConnection, onRefresh, onAuthorize, onSave,
 }: Props) {
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -138,7 +145,7 @@ export function ConnectedMailboxes({
       ) : <p className="connected-mailboxes__empty">添加外部邮箱后，来信会出现在统一收件箱。</p>}
       {connectOpen ? (
         <ConnectDialog
-          selection={selection} oauthProviders={oauthProviders} onSelect={setSelection}
+          selection={selection} local={local} oauthProviders={oauthProviders} onSelect={setSelection}
           onClose={() => { setSelection(null); onConnectOpen(false); }} onAuthorize={onAuthorize}
           onSave={onSave}
         />
@@ -147,14 +154,15 @@ export function ConnectedMailboxes({
   );
 }
 
-type DialogProps = Pick<Props, 'oauthProviders' | 'onAuthorize' | 'onSave'> & {
+type DialogProps = Pick<Props, 'local' | 'oauthProviders' | 'onAuthorize' | 'onSave'> & {
   selection: Selection | null;
   onSelect: (selection: Selection | null) => void;
   onClose: () => void;
 };
 
-function ConnectDialog({ selection, oauthProviders, onSelect, onClose, onAuthorize, onSave }: DialogProps) {
+function ConnectDialog({ selection, local, oauthProviders, onSelect, onClose, onAuthorize, onSave }: DialogProps) {
   const stepRef = useRef<HTMLDivElement>(null);
+  const choices: readonly MailProvider[] = local ? ['gmail_app', ...providers.filter(p => p !== 'gmail' || oauthProviders.includes('gmail'))] : providers;
   const step = selection?.provider;
   useEffect(() => { stepRef.current?.focus(); }, [step]);
   const provider = selection?.provider;
@@ -182,9 +190,9 @@ function ConnectDialog({ selection, oauthProviders, onSelect, onClose, onAuthori
         </div>
       ) : (
         <div ref={stepRef} tabIndex={-1} className="mailbox-connect-step" role="group" aria-label="选择邮箱服务商">
-          <p className="mailbox-connect-note">选择你想接入的邮箱。</p>
+          <p className="mailbox-connect-note">{local ? '邮件和凭据保存在这台电脑上。' : '选择你想接入的邮箱。'}</p>
           <ul className="mailbox-connect-providers">
-            {providers.map((option) => {
+            {choices.map((option) => {
               const available = !isOAuth(option) || oauthProviders.includes(option);
               const label = <span><strong>{names[option]}</strong><small>{providerDetails[option]}</small></span>;
               return (

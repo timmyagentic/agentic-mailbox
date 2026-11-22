@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "npm run build && wrangler deploy --dry-run --outdir .wrangler/local-worker && node scripts/local.mjs",
     "dev": "npm run build && wrangler dev --local",
     "dev:web": "vite",
     "build": "tsc -b && vite build",

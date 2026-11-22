@@ -2536,3 +2536,8 @@ button.mailbox-connect-option:hover {
 .login-certificate {
   margin-top: 10px;
 }
+
+.login-mode-actions { display: flex; gap: 10px; margin-top: 12px; }
+.login-form label input { display: block; width: 100%; margin-top: 6px; padding: 10px; }
+
+.login-local-download { display: inline-block; margin-top: 16px; color: var(--teal-strong); }

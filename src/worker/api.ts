@@ -96,7 +96,8 @@ async function handleCertificateLogin(request: Request, env: Env): Promise<Respo
 
 async function handleSession(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET') {
-    return json(await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS));
+    return json({ ...await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS),
+      ...(env.MEMBERS ? { edition: 'hosted' } : env.LOCAL_MODE === '1' ? { edition: 'local' } : {}) });
   }
 
   assertSameOrigin(request);
@@ -135,6 +136,8 @@ async function bootstrap(env: Env): Promise<Response> {
     recentEmails,
     recentAliases,
     mailAccounts,
+    local: env.LOCAL_MODE === '1',
+    externalOnly: Boolean(env.EXTERNAL_ONLY || env.LOCAL_MODE === '1'),
     oauthProviders: configuredOAuthProviders(env),
   } satisfies BootstrapPayload);
 }
@@ -190,6 +193,16 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
     return handleSession(request, env);
   }
 
+  if (pathname === '/api/session/local' && env.LOCAL_MODE === '1' && request.method === 'POST') {
+    assertSameOrigin(request);
+    const { ticket } = await readJson<{ ticket?: string }>(request);
+    if (typeof ticket !== 'string' || ticket.length !== 64) throw new HttpError(401, 'invalid_ticket', '请重新打开本地启动器。');
+    const result = await env.DB.prepare('DELETE FROM local_launch WHERE ticket = ?1 AND expires > ?2')
+      .bind(ticket, Date.now()).run();
+    if (!result.meta.changes) throw new HttpError(401, 'expired_ticket', '本机登录链接已过期，请使用本机密码。');
+    return startAdminSession(request, env);
+  }
+
   if (pathname === '/api/session/certificate') {
     return handleCertificateLogin(request, env);
   }
@@ -200,6 +213,9 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   }
 
   await requireSession(request, env);
+  if ((env.EXTERNAL_ONLY || env.LOCAL_MODE === '1') && request.method !== 'GET' && (pathname === '/api/aliases' || pathname.startsWith('/api/aliases/'))) {
+    throw new HttpError(403, 'managed_domain_only', '此空间只支持连接外部邮箱。');
+  }
 
   const startProvider = routeId(pathname, '/api/oauth/', '/start');
   if (isOAuthProvider(startProvider) && request.method === 'POST') {

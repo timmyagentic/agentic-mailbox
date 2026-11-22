@@ -1,6 +1,12 @@
+import type { MailBucket, MailDatabase } from './storage-types';
+
 export interface Env {
-  DB: D1Database;
-  ATTACHMENTS: R2Bucket;
+  MEMBERS?: DurableObjectNamespace;
+  MEMBER_AUTH_LIMIT?: RateLimit;
+  LOCAL_MODE?: string;
+  EXTERNAL_ONLY?: boolean;
+  DB: MailDatabase;
+  ATTACHMENTS: MailBucket;
   ASSETS: Fetcher;
   APP_NAME: string;
   PRIMARY_DOMAIN: string;

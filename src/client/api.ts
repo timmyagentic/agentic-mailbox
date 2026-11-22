@@ -69,6 +69,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const mailboxApi = {
+  unlockLocal: (ticket: string) => api<SessionPayload>('/api/session/local', { method: 'POST', body: JSON.stringify({ ticket }) }),
+  memberLogin: (username: string, password: string, register: boolean) =>
+    api<SessionPayload>(register ? '/api/members/register' : '/api/members/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   session: () => api<SessionPayload>('/api/session'),
   login: (password: string) =>
     api<SessionPayload>('/api/session', { method: 'POST', body: JSON.stringify({ password }) }),

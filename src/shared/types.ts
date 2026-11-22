@@ -72,7 +72,7 @@ export type DashboardStats = {
   attachmentBytes: number;
 };
 
-export type ImapProvider = 'qq' | 'netease163';
+export type ImapProvider = 'qq' | 'netease163' | 'gmail_app';
 export type OAuthProvider = 'gmail' | 'outlook';
 export type MailProvider = ImapProvider | OAuthProvider;
 
@@ -101,10 +101,13 @@ export type BootstrapPayload = {
   recentEmails: EmailSummary[];
   recentAliases: MailAlias[];
   mailAccounts: MailAccount[];
+  local?: boolean;
+  externalOnly?: boolean;
   oauthProviders?: OAuthProvider[];
 };
 
 export type SessionPayload = {
+  edition?: 'local' | 'hosted';
   authenticated: boolean;
   user: { email: string } | null;
 };

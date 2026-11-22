@@ -14,17 +14,21 @@ import { type FormEvent, useState } from 'react';
 type LoginViewProps = {
   error: string;
   busy: boolean;
-  onLogin: (password: string) => Promise<void>;
+  edition?: 'local' | 'hosted';
+  onLogin: (password: string, member?: { username: string; register: boolean }) => Promise<void>;
   onCertificateLogin: () => Promise<void>;
 };
 
-export function LoginView({ error, busy, onLogin, onCertificateLogin }: LoginViewProps) {
+export function LoginView({ edition, error, busy, onLogin, onCertificateLogin }: LoginViewProps) {
+  const [mode, setMode] = useState<'member' | 'register' | 'admin'>(edition === 'hosted' ? 'member' : 'admin');
+  const [username, setUsername] = useState('');
+  const member = mode !== 'admin';
   const [password, setPassword] = useState('');
   const [visible, setVisible] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    await onLogin(password);
+    await onLogin(password, member ? { username, register: mode === 'register' } : undefined);
   };
 
   return (
@@ -86,12 +90,13 @@ export function LoginView({ error, busy, onLogin, onCertificateLogin }: LoginVie
 
       <section className="login-access" aria-labelledby="login-title">
         <div className="login-panel">
-          <p className="login-kicker" lang="en">PRIVATE ADMIN WORKSPACE</p>
-          <h2 id="login-title">管理员登录</h2>
-          <p className="login-intro">使用管理员密码或设备证书登录</p>
+
+          <h2 id="login-title">{mode === 'register' ? '创建个人邮箱空间' : member ? '登录个人邮箱空间' : edition === 'local' ? '本地邮箱' : '管理员登录'}</h2>
+          <p className="login-intro">{member ? '邮件与附件仅在你的账号中可见。' : edition === 'local' ? '使用启动器打开，或输入本机密码。' : '使用管理员密码或设备证书登录'}</p>
 
           <form onSubmit={submit} className="login-form" aria-busy={busy}>
-            <label htmlFor="admin-password">管理员密码</label>
+             {member && <label>用户名<input value={username} required autoComplete="username" minLength={3} maxLength={40} title="3–40 位字母、数字、下划线或短横线" onChange={event => setUsername(event.target.value)} /></label>}
+            <label htmlFor="admin-password">{member ? '密码（至少 12 位）' : '管理员密码'}</label>
             <div className="password-field">
               <LockKeyhole size={18} aria-hidden="true" />
               <input
@@ -99,8 +104,8 @@ export function LoginView({ error, busy, onLogin, onCertificateLogin }: LoginVie
                 type={visible ? 'text' : 'password'}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                autoComplete="current-password"
-                placeholder="输入管理员密码"
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                placeholder={member ? '输入个人密码' : '输入管理员密码'} minLength={member ? 12 : undefined} maxLength={member ? 256 : undefined}
                 aria-invalid={Boolean(error)}
                 aria-describedby={error ? 'login-error' : undefined}
                 autoFocus
@@ -118,10 +123,14 @@ export function LoginView({ error, busy, onLogin, onCertificateLogin }: LoginVie
               </button>
             </div>
             <button className="button button--primary button--full" type="submit" disabled={busy || !password}>
-              {busy ? '登录中...' : '进入管理端'}
+              {busy ? '请稍候…' : mode === 'register' ? '创建账号' : member ? '登录' : '进入管理端'}
             </button>
           </form>
-          <button
+          {edition === 'hosted' && <div className="login-mode-actions">{(['member', 'register', 'admin'] as const).filter(item => item !== mode).map(item =>
+            <button className="button button--secondary" type="button" key={item} onClick={() => { setMode(item); setPassword(''); }}>
+              {{ member: '个人登录', register: '注册账号', admin: '管理员登录' }[item]}
+            </button>)}</div>}
+          {!member && edition !== 'local' && <button
             className="button button--secondary button--full login-certificate"
             type="button"
             onClick={() => void onCertificateLogin()}
@@ -129,16 +138,17 @@ export function LoginView({ error, busy, onLogin, onCertificateLogin }: LoginVie
           >
             <BadgeCheck size={17} aria-hidden="true" />
             使用设备证书登录
-          </button>
+          </button>}
           {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
 
+          {edition === 'hosted' && <a className="login-local-download" href="/downloads/mailbox-vault-mac-arm64.zip">下载本地版 · Mac（Apple Silicon）</a>}
           <p className="login-submit-hint">
             <Keyboard size={17} aria-hidden="true" />
             按 Enter 提交
           </p>
           <footer className="login-footer">
             <ShieldCheck size={15} aria-hidden="true" />
-            <span>认证成功后建立受保护的管理会话</span>
+            <span>{edition === 'hosted' ? '托管版 · Mailbox Vault' : 'Mailbox Vault'}</span>
           </footer>
         </div>
       </section>
