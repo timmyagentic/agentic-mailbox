@@ -187,7 +187,7 @@ The [upstream Agentic Inbox notice](LICENSE.agentic-inbox) and licenses for othe
 
 ## Codex plugin
 
-With [uv](https://docs.astral.sh/uv/) installed, add the desktop plugin from this repository:
+The desktop plugin bundles a Skill and a Python 3 command-line client that uses only the standard library. Install it from this repository:
 
 ```sh
 codex plugin marketplace add timmyagentic/agentic-mailbox
