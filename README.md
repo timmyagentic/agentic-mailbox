@@ -194,7 +194,9 @@ codex plugin marketplace add timmyagentic/agentic-mailbox
 codex plugin add agentic-mailbox@agentic-mailbox-tools
 ```
 
-In your own terminal, from a checkout of this repository, connect the mailbox instance you want Codex to use:
+For this Mac's inbox, sign in to Agentic Mailbox and select **邮箱设置 → 授权本机 Codex 插件**. This grants the plugin a separate expiring mailbox session under the `local` profile (or `local-PORT` if using another port). Reconnect there when it expires.
+
+You can also connect an instance from your own terminal in a checkout of this repository:
 
 ```sh
 python3 plugins/agentic-mailbox/skills/agentic-mailbox/scripts/mailbox.py login --origin http://127.0.0.1:8787 --admin

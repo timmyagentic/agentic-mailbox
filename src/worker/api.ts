@@ -221,6 +221,17 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   }
 
   await requireSession(request, env);
+  if (pathname === '/api/codex/connect' && env.LOCAL_MODE === '1' && env.LOCAL_CODEX && request.method === 'POST') {
+    assertSameOrigin(request);
+    await readJson(request);
+    const token = await createSessionToken(env.ADMIN_EMAIL, env.SESSION_SECRET);
+    const cookie = sessionCookie(token, request.url).split(';')[0];
+    const connected = await env.LOCAL_CODEX.fetch('https://local-codex.internal/connect', {
+      method: 'POST', body: JSON.stringify({ cookie }),
+    });
+    if (!connected.ok) throw new HttpError(503, 'codex_pair_failed', '无法保存本机 Codex 插件会话。');
+    return json(await connected.json<{ profile: string }>());
+  }
   if ((env.EXTERNAL_ONLY || env.LOCAL_MODE === '1') && request.method !== 'GET' && (pathname === '/api/aliases' || pathname.startsWith('/api/aliases/'))) {
     throw new HttpError(403, 'managed_domain_only', '此空间只支持连接外部邮箱。');
   }

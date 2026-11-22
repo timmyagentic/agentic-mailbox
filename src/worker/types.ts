@@ -5,6 +5,7 @@ export interface Env {
   MEMBER_AUTH_LIMIT?: RateLimit;
   LOCAL_MODE?: string;
   CHATGPT?: Fetcher;
+  LOCAL_CODEX?: Fetcher;
   EXTERNAL_ONLY?: boolean;
   DB: MailDatabase;
   ATTACHMENTS: MailBucket;

@@ -74,6 +74,7 @@ export const mailboxApi = {
   finishChatGPT: (params: URLSearchParams) =>
     api<SessionPayload>('/api/chatgpt/finish', { method: 'POST', body: JSON.stringify(Object.fromEntries(params)) }),
   disconnectChatGPT: () => api<{ revoked: boolean }>('/api/chatgpt/disconnect', { method: 'POST', body: '{}' }),
+  connectCodex: () => api<{ profile: string }>('/api/codex/connect', { method: 'POST', body: '{}' }),
   unlockLocal: (ticket: string) => api<SessionPayload>('/api/session/local', { method: 'POST', body: JSON.stringify({ ticket }) }),
   memberLogin: (username: string, password: string, register: boolean) =>
     api<SessionPayload>(register ? '/api/members/register' : '/api/members/login', { method: 'POST', body: JSON.stringify({ username, password }) }),

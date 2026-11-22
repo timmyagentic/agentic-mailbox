@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { Miniflare, Response as LocalResponse } from 'miniflare';
 import { createChatGPTService } from './chatgpt-local.mjs';
+import { connectLocalCodex } from './codex-connection.mjs';
 import { localData as data, localPort as port } from './local-settings.mjs';
 import { localDeviceAuth } from './local-device-auth.mjs';
 
@@ -39,6 +40,11 @@ if (existsSync(bundledOutlookClient)) {
 }
 const runtime = new Miniflare({
   serviceBindings: {
+    LOCAL_CODEX: async request => {
+      const { cookie } = await request.json();
+      const profile = connectLocalCodex(origin, cookie);
+      return LocalResponse.json({ profile });
+    },
     CHATGPT: async request => {
       chatGPT ??= createChatGPTService({ directory: data, origin, encryptionKey: identity.MAIL_ACCOUNT_KEY });
       const result = await chatGPT(request);

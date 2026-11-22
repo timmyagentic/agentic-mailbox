@@ -398,6 +398,16 @@ export default function App() {
           ) : null}
           {activeView === 'aliases' ? (
             <div className="page">
+              {bootstrap?.local && <section className="connected-mailboxes">
+                <h2>Codex 邮箱插件</h2>
+                <p>授权后，这台 Mac 上的插件可用当前本机用户的权限管理邮箱、草稿和发信。</p>
+                <button className="button button--secondary" onClick={async () => {
+                  try {
+                    const { profile } = await mailboxApi.connectCodex();
+                    setToast({ type: 'success', message: 'Codex 已连接，配置名为 ' + profile });
+                  } catch (error) { showError(error); }
+                }}>授权本机 Codex 插件</button>
+              </section>}
               {bootstrap?.chatGPT && <section className="connected-mailboxes">
                 <h2>ChatGPT</h2>
                 <p>{bootstrap.chatGPT.linked ? (bootstrap.chatGPT.email || '已绑定 ChatGPT 账号') : '绑定后可用 ChatGPT 登录这台 Mac 上的邮箱。'}</p>
