@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createCipheriv, randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

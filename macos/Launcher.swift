@@ -183,11 +183,11 @@ final class Launcher: NSObject, NSApplicationDelegate {
     private func consume(_ chunk: Data) {
         received.append(chunk)
         while let end = received.firstIndex(of: 0x0a) {
-            let line = received[..<end]
-            if let message = try? JSONDecoder().decode(ServiceMessage.self, from: Data(line)) {
+            let line = Data(received[..<end])
+            received.removeSubrange(...end)
+            if let message = try? JSONDecoder().decode(ServiceMessage.self, from: line) {
                 receive(message)
             }
-            received.removeSubrange(...end)
         }
     }
 
