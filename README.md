@@ -8,7 +8,7 @@ On Apple Silicon macOS, unzip the Mac ZIP from [GitHub Releases](https://github.
 
 For a source checkout, install Node 22.12 or newer, run `npm ci`, then `npm start`. The default URL is `http://127.0.0.1:8787`. Stop with Ctrl+C. Set `AGENTIC_MAILBOX_DATA_DIR` and `AGENTIC_MAILBOX_LOCAL_PORT` to customize storage and port. On macOS data persists in `~/Library/Application Support/Agentic Mailbox`. Upgrades reuse the previous edition’s data directory if it already exists. Back up the active data directory including `identity.json`, which contains the login password and encryption key. Restore it with the application stopped.
 
-Gmail can connect using an account's 16-character app password when Google offers that option. QQ/Foxmail and 163 use their own client authorization codes. To use personal OAuth clients, run **配置本机 OAuth.command** on macOS, or set the corresponding client ID and secret pairs in `oauth.json` in the local data directory. Register `http://127.0.0.1:8787/api/oauth/gmail/callback` and/or `http://127.0.0.1:8787/api/oauth/outlook/callback` with your own provider apps. Restart after changes. The local runtime has no cloud storage, forwarding, Workers AI or managed domain sending bindings.
+Gmail can connect using an account's 16-character app password when Google offers that option. QQ/Foxmail and 163 use their own client authorization codes. To use personal OAuth clients, run **配置本机 OAuth.command** on macOS, or set the corresponding client ID and secret pairs in `oauth.json` in the local data directory. Register `http://127.0.0.1:8787/api/oauth/gmail/callback` and/or `http://127.0.0.1:8787/api/oauth/outlook/callback` with your own provider apps. Restart after changes. The local runtime uses local storage and has no forwarding or managed-domain sending bindings. It can optionally connect to your own AI endpoint for drafting.
 
 ### Signed Mac disk image
 
@@ -73,7 +73,18 @@ The workbench keeps the unified Inbox and account filter, with Sent, Drafts, Arc
 
 Compose, reply, and forward from an enabled address. QQ and 163 send through their TLS SMTP servers on port 465 using the existing client authorization code. Gmail and Outlook send through their official mail APIs with the connected account’s delegated permission. Managed aliases send through the Worker `EMAIL` binding once the domain has been onboarded to Cloudflare Email Sending. Replies pass threading headers and forwards can include the source attachments. All attachments in a message share a 5 MiB limit. Outlook also caps the encoded message at 4 MB, including the base64 expansion, body and headers. Send attempts with an uncertain result leave the draft locked for review.
 
-Open the Agent panel to generate a draft on demand. The `AI` binding uses Workers AI Gemma 4. Generation uses the current prompt, draft text and a limited excerpt of the selected conversation. Review or edit the resulting draft before pressing Send.
+Open the AI panel to generate a draft on demand. Set `OPENAI_API_KEY` as a Worker secret, with optional `OPENAI_BASE_URL` and `OPENAI_MODEL` deployment variables. The defaults are `https://api.openai.com/v1` and `gpt-4.1-mini`. An OpenAI-compatible base URL must expose `/chat/completions` under the configured path. Hosted instances keep their existing Workers AI provider until an API key is configured.
+
+For the standalone edition, set these environment variables before running `npm start` or launching `打开本地邮箱.command` from the terminal. Local instances also accept a loopback HTTP provider. An AI request sends the instruction, draft and a limited conversation excerpt to the configured provider. Review or edit the resulting draft before pressing Send.
+
+### Use with an external Agent
+
+The [Agentic Mailbox Skill](skills/agentic-mailbox/SKILL.md) works with the existing app API and runs with Python 3. Install the whole `skills/agentic-mailbox` folder in your Agent's skill directory. Sign in once in your own terminal, then ask the Agent to search conversations, refresh connected accounts, or prepare a reply draft. For a hosted instance, sign in with a workspace member account.
+
+```bash
+python3 skills/agentic-mailbox/scripts/mailbox.py login --origin https://mailbox.example.com --username your-user
+python3 skills/agentic-mailbox/scripts/mailbox.py list --query "invoice"
+```
 
 The workbench adapts the Apache-2.0 source layout, components and styles of [Cloudflare Agentic Inbox, 48039bb](https://github.com/cloudflare/agentic-inbox/tree/48039bb6785af34e592c2966f87cde2b255c4c80). Adapted files preserve attribution. See [LICENSE.agentic-inbox](LICENSE.agentic-inbox).
 

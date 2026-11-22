@@ -23,6 +23,9 @@ export interface Env {
   OUTLOOK_CLIENT_SECRET?: string;
   EMAIL?: SendEmail;
   AI?: Ai;
+  OPENAI_API_KEY?: string;
+  OPENAI_BASE_URL?: string;
+  OPENAI_MODEL?: string;
 }
 
 export type EmailWorkerMessage = ForwardableEmailMessage;

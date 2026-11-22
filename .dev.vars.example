@@ -11,3 +11,8 @@ GMAIL_CLIENT_ID=
 GMAIL_CLIENT_SECRET=
 OUTLOOK_CLIENT_ID=
 OUTLOOK_CLIENT_SECRET=
+
+# Optional OpenAI-compatible AI drafting. Store real keys in secrets only.
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4.1-mini

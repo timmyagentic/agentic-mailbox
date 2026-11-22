@@ -200,7 +200,7 @@ export default function Mailbox({ token, user, onLogout }: { token: string; user
   if (screen.name === 'reader') return <Reader key={screen.id} api={api} id={screen.id} starred={screen.starred} folder={folder}
     back={back} compose={compose} />;
   if (screen.name === 'compose') return <Compose key={'id' in screen.draft ? screen.draft.id : 'new'} api={api}
-    initial={screen.draft} senders={senders} aiEnabled={bootstrap?.local !== true}
+    initial={screen.draft} senders={senders} aiEnabled={bootstrap?.aiAvailable ?? (bootstrap?.local !== true)}
     close={(text) => {
       setNotice(text ?? '');
       if (screen.previous && !text) setScreen(screen.previous);

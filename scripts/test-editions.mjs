@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Miniflare, Response as FixtureResponse } from 'miniflare';
 
 const origin = 'https://mailbox.example';
+const completionCalls = [];
 const runtime = new Miniflare({
   modules: true, scriptPath: '.wrangler/local-worker/entry.js',
   modulesRules: [{ type: 'Text', include: ['**/*.sql'], fallthrough: true }],
@@ -10,6 +11,20 @@ const runtime = new Miniflare({
   d1Databases: ['DB'], r2Buckets: ['ATTACHMENTS'],
   outboundService: async req => {
     const url = new URL(req.url);
+    if (url.hostname === 'redirected.example') {
+      completionCalls.push({ path: 'unexpected_redirect' });
+      return new FixtureResponse(null, { status: 500 });
+    }
+    if (url.hostname === 'compatible.example') {
+      completionCalls.push({
+        path: url.pathname, method: req.method, authorized: req.headers.get('Authorization') === 'Bearer fixture-ai-key',
+        body: await req.json(),
+      });
+      if (JSON.parse(completionCalls.at(-1).body.messages[1].content).instruction === 'Fixture redirect') {
+        return new FixtureResponse(null, { status: 307, headers: { Location: 'https://redirected.example' } });
+      }
+      return FixtureResponse.json({ choices: [{ message: { content: 'Thanks for the update.' } }] });
+    }
     if (url.hostname === 'oauth2.googleapis.com') return FixtureResponse.json({
       access_token: 'test-access', refresh_token: 'test-refresh', expires_in: 3600 });
     assert.equal(req.headers.get('Authorization'), 'Bearer test-access');
@@ -26,6 +41,7 @@ const runtime = new Miniflare({
       raw: Buffer.from(raw).toString('base64url') });
   },
   bindings: { MAIL_OAUTH_ORIGIN: origin, GMAIL_CLIENT_ID: 'test-google', GMAIL_CLIENT_SECRET: 'test-client',
+    OPENAI_API_KEY: 'fixture-ai-key', OPENAI_BASE_URL: 'https://compatible.example/v1/', OPENAI_MODEL: 'fixture-draft-model',
     ADMIN_EMAIL: 'owner@example.com', ADMIN_PASSWORD: 'owner-test-password',
     PRIMARY_DOMAIN: 'example.com', SESSION_SECRET: 'integration-test-session', MAIL_ACCOUNT_KEY: Buffer.alloc(32, 42).toString('base64') },
 });
@@ -89,11 +105,28 @@ try {
   assert.equal(home.status, 200, JSON.stringify(bootstrap));
   assert.deepEqual(bootstrap.mailAccounts.map(account => account.id), [aId]);
   assert.equal(bootstrap.externalOnly, true);
+  assert.equal(bootstrap.aiAvailable, true);
+  assert.equal(JSON.stringify(bootstrap).includes('fixture-ai-key'), false);
   assert.equal((await request('/api/mail-accounts/' + aId + '/refresh', b, {})).status, 404);
   assert.equal((await request('/api/aliases', b, { localPart: 'forbidden' })).status, 403);
   const draft = await (await request('/api/drafts', a, { aliasId: aId, to: 'test@example.com', bodyText: 'private' })).json();
   assert.ok(draft.draft?.id, JSON.stringify(draft));
   const path = '/api/drafts/' + draft.draft.id;
+  assert.equal((await request(path + '/suggest', b, { instruction: 'Write a brief reply.' })).status, 404);
+  const generated = await request(path + '/suggest', a, { instruction: 'Write a brief reply.' });
+  assert.equal(generated.status, 200, JSON.stringify(completionCalls));
+  assert.equal(completionCalls.length, 1);
+  const [{ path: endpoint, method, authorized, body: completion }] = completionCalls;
+  assert.deepEqual({ endpoint, method, authorized }, { endpoint: '/v1/chat/completions', method: 'POST', authorized: true });
+  assert.equal(completion.model, 'fixture-draft-model');
+  assert.equal(completion.max_tokens, 650);
+  assert.equal(JSON.parse(completion.messages[1].content).instruction, 'Write a brief reply.');
+  assert.equal((await generated.json()).text, 'Thanks for the update.');
+  const redirect = await request(path + '/suggest', a, { instruction: 'Fixture redirect' });
+  assert.equal(redirect.status, 502);
+  assert.equal(completionCalls.length, 2);
+  assert.equal(completionCalls[1].path, '/v1/chat/completions');
+  assert.equal((await (await request(path, a)).json()).draft.bodyText, 'private');
   assert.equal((await request(path, b)).status, 404);
   assert.equal((await request(path + '/send', b, {})).status, 404);
   assert.equal((await request(path, b, undefined, 'DELETE')).status, 409);

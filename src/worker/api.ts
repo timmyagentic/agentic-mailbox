@@ -26,6 +26,7 @@ import {
 import {
   discardDraft, discardDraftFile, generateDraftText, getDraft, listDrafts, saveDraft, sendDraft, uploadDraftFile,
 } from './drafts';
+import { draftAIAvailable } from './draft-ai';
 import { assertSameOrigin, HttpError, json, parseLimit, readJson } from './http';
 import { configuredOAuthProviders, finishOAuth, isOAuthProvider, oauthCallback, startOAuth } from './oauth';
 import type { Env } from './types';
@@ -139,6 +140,7 @@ async function bootstrap(env: Env): Promise<Response> {
     local: env.LOCAL_MODE === '1',
     externalOnly: Boolean(env.EXTERNAL_ONLY || env.LOCAL_MODE === '1'),
     oauthProviders: configuredOAuthProviders(env),
+    aiAvailable: draftAIAvailable(env),
   } satisfies BootstrapPayload);
 }
 

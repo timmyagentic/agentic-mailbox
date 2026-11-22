@@ -29,6 +29,9 @@ const bindings = {};
 for (const key of ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'OUTLOOK_CLIENT_ID', 'OUTLOOK_CLIENT_SECRET']) {
   if (typeof oauth[key] === 'string') bindings[key] = oauth[key];
 }
+for (const key of ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_MODEL']) {
+  if (process.env[key]) bindings[key] = process.env[key];
+}
 const runtime = new Miniflare({
   name: 'mailbox-local', cf: false, modules: true, scriptPath: '.wrangler/local-worker/entry.js',
   compatibilityDate: '2026-07-19', compatibilityFlags: ['nodejs_compat'],

@@ -104,6 +104,7 @@ export type BootstrapPayload = {
   local?: boolean;
   externalOnly?: boolean;
   oauthProviders?: OAuthProvider[];
+  aiAvailable?: boolean;
 };
 
 export type SessionPayload = {
