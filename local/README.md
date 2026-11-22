@@ -16,4 +16,4 @@
 
 ## 打包 Outlook 接入
 
-维护者在 Microsoft Entra 为本地版单独注册「移动和桌面应用程序」，支持组织帐户和个人 Microsoft 帐户，启用公共客户端并登记 `http://127.0.0.1:8787/api/oauth/outlook/callback` 为公共客户端的重定向 URI。所需的 Microsoft Graph 委托权限为 User.Read、Mail.Read、Mail.Send，授权请求同时包含 offline_access。将公开的 Application (client) ID 通过 `AGENTIC_MAILBOX_OUTLOOK_CLIENT_ID` 传给 `node scripts/package-mac.mjs`。安装包无需客户端密钥。已经用自己的 Web 客户端接入的用户会继续使用原配置。
+维护者在 Microsoft Entra 为本地版单独注册「移动和桌面应用程序」，支持组织帐户和个人 Microsoft 帐户，启用公共客户端并登记 `http://127.0.0.1:8787/api/oauth/outlook/callback` 为公共客户端的重定向 URI。所需的 Microsoft Graph 委托权限为 User.Read、Mail.Read、Mail.Send，授权请求同时包含 offline_access。公开的 Application (client) ID 随本地版打包，维护者可用 `AGENTIC_MAILBOX_OUTLOOK_CLIENT_ID` 替换打包时使用的 ID。安装包无需客户端密钥。已经用自己的 Web 客户端接入的用户会继续使用原配置。
