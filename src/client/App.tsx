@@ -18,7 +18,7 @@ import { LoginView } from './views/LoginView';
 import { OverviewView } from './views/OverviewView';
 
 const InboxWorkbench = lazy(() => import('./workbench/InboxWorkbench'));
-const reconnectStorageKey = 'mailbox-vault-oauth-reconnect';
+const reconnectStorageKey = 'agentic-mailbox-oauth-reconnect';
 
 function takeReconnectTarget(provider: OAuthProvider): string | undefined {
   try {
@@ -317,7 +317,7 @@ export default function App() {
     return (
       <main className="boot-screen">
         <div className="brand-loader" role="status"><span className="spinner" /><strong>
-          {connectingProvider ? `正在同步 ${connectingProvider === 'gmail' ? 'Gmail' : 'Outlook'} 邮件…` : 'Mailbox Vault'}
+          {connectingProvider ? `正在同步 ${connectingProvider === 'gmail' ? 'Gmail' : 'Outlook'} 邮件…` : 'Agentic Mailbox'}
         </strong></div>
       </main>
     );
@@ -328,7 +328,7 @@ export default function App() {
   }
 
   const stats = bootstrap?.stats ?? EMPTY_STATS;
-  const appName = bootstrap?.appName ?? 'Mailbox Vault';
+  const appName = bootstrap?.appName ?? 'Agentic Mailbox';
   const primaryDomain = bootstrap?.primaryDomain ?? 'emomo.net';
   const accounts = bootstrap?.mailAccounts ?? [];
   const mailSources = [...aliases, ...accounts];

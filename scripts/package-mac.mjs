@@ -8,14 +8,14 @@ const root = process.cwd();
 const output = resolve('outputs');
 mkdirSync(output, { recursive: true });
 const staging = mkdtempSync(join(output, '.build-'));
-const folder = 'Mailbox Vault';
+const folder = 'Agentic Mailbox';
 const app = join(staging, folder);
 const copy = (from, to) => {
   mkdirSync(dirname(to), { recursive: true });
   cpSync(from, to, { recursive: true, dereference: true, filter: path => !path.endsWith('.map') && !path.endsWith('/node_modules') });
 };
 try {
-  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/configure-local.mjs',
+  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
     '打开本地邮箱.command', '配置本机 OAuth.command', 'LICENSE.agentic-inbox', '.wrangler/local-worker']) {
     copy(join(root, item), join(app, item));
   }
@@ -54,7 +54,7 @@ try {
   }
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   for (const dependency of Object.keys(pkg.dependencies)) notices(dependency, root);
-  const zip = join(output, 'mailbox-vault-mac-arm64.zip');
+  const zip = join(output, 'agentic-mailbox-mac-arm64.zip');
   execFileSync('ditto', ['-c', '-k', '--norsrc', '--keepParent', app, zip]);
   console.log(zip);
 } finally { rmSync(staging, { recursive: true, force: true }); }

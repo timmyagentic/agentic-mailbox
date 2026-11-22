@@ -216,7 +216,7 @@ beforeAll(async () => {
     script: 'export default { fetch() { return new Response("ok"); } }',
     d1Databases: ['DB'], r2Buckets: ['ATTACHMENTS'],
     bindings: {
-      APP_NAME: 'Mailbox Vault', PRIMARY_DOMAIN: 'emomo.net', ADMIN_EMAIL: 'owner@example.com',
+      APP_NAME: 'Agentic Mailbox', PRIMARY_DOMAIN: 'emomo.net', ADMIN_EMAIL: 'owner@example.com',
       ADMIN_PASSWORD: 'local-works-only', SESSION_SECRET: 'fixture-session-signing-secret',
       MAIL_ACCOUNT_KEY: Buffer.alloc(32, 69).toString('base64'),
     },

@@ -1,6 +1,7 @@
 import type { SessionPayload } from '../shared/types';
 
-export const SESSION_COOKIE = 'mailbox_vault_session';
+const SESSION_COOKIE = 'agentic_mailbox_session';
+const LEGACY_SESSION_COOKIE = 'mailbox_vault_session';
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
 
 type SignedSession = {
@@ -145,7 +146,7 @@ export async function verifySessionToken(
   }
 }
 
-export function readCookie(request: Request, name: string): string | null {
+function readCookie(request: Request, name: string): string | null {
   const cookie = request.headers.get('cookie') ?? '';
   for (const part of cookie.split(';')) {
     const [key, ...rest] = part.trim().split('=');
@@ -156,13 +157,17 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
+export function readSessionCookie(request: Request): string | null {
+  return readCookie(request, SESSION_COOKIE) ?? readCookie(request, LEGACY_SESSION_COOKIE);
+}
+
 export async function getSession(
   request: Request,
   email: string,
   secret: string,
   certificateAllowlist?: string,
 ): Promise<SessionPayload> {
-  const token = readCookie(request, SESSION_COOKIE);
+  const token = readSessionCookie(request);
   const session = token ? await verifySessionToken(token, email, secret) : null;
   const authenticated = Boolean(session && (
     session.version === 1 ||
@@ -176,7 +181,11 @@ export function sessionCookie(token: string, requestUrl: string): string {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_TTL_SECONDS}${secure}`;
 }
 
-export function clearSessionCookie(requestUrl: string): string {
+export function clearedSessionCookies(requestUrl: string): Headers {
   const secure = new URL(requestUrl).protocol === 'https:' ? '; Secure' : '';
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
+  const headers = new Headers();
+  for (const name of [SESSION_COOKIE, LEGACY_SESSION_COOKIE]) {
+    headers.append('Set-Cookie', `${name}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
+  }
+  return headers;
 }

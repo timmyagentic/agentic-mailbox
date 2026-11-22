@@ -243,7 +243,7 @@ export default function InboxWorkbench({
   );
 
   return (
-    <div className="vault-workbench flex overflow-hidden bg-kumo-base text-kumo-default antialiased">
+    <div className="mailbox-workbench flex overflow-hidden bg-kumo-base text-kumo-default antialiased">
       {mobileMenu ? <button type="button" aria-label="关闭导航" className="fixed inset-0 z-20 bg-black/20 border-0 md:hidden" onClick={() => setMobileMenu(false)} /> : null}
       <aside className={`flex-col w-[240px] shrink-0 border-r border-kumo-line bg-kumo-tint
         ${mobileMenu ? 'flex fixed top-0 left-0 bottom-0 z-30' : 'hidden md:flex'}`}>
@@ -261,14 +261,14 @@ export default function InboxWorkbench({
             const active = isMailView && id === folder;
             const count = id === 'inbox' ? unread : id === 'drafts' ? drafts.length : 0;
             return <button key={id} type="button" onClick={() => selectFolder(id)} aria-current={active ? 'page' : undefined}
-              className={`vault-outline flex items-center gap-3 w-full px-3 py-2 rounded-md border-0 cursor-pointer text-left text-sm
+              className={`mailbox-outline flex items-center gap-3 w-full px-3 py-2 rounded-md border-0 cursor-pointer text-left text-sm
                 ${active ? 'bg-kumo-fill text-kumo-default font-semibold' : 'bg-transparent text-kumo-subtle hover:bg-kumo-fill'}`}>
               <Icon size={18} />{label}{count > 0 ? <span className="ml-auto text-xs tabular-nums">{count}</span> : null}
             </button>;
           })}
           <div className="mt-6 px-2">
-            <label htmlFor="vault-source" className="block text-xs font-medium text-kumo-subtle mb-2">邮箱来源</label>
-            <select id="vault-source" className="w-full min-w-0 border border-kumo-line rounded-md px-2 py-1.5 bg-kumo-base text-sm text-kumo-default"
+            <label htmlFor="mailbox-source" className="block text-xs font-medium text-kumo-subtle mb-2">邮箱来源</label>
+            <select id="mailbox-source" className="w-full min-w-0 border border-kumo-line rounded-md px-2 py-1.5 bg-kumo-base text-sm text-kumo-default"
               aria-label="筛选邮箱" value={sourceId}
               onChange={(event) => { setSourceId(event.target.value); setPage(1); onSelect(null); if (!isMailView) navigate('inbox'); }}>
               <option value="">全部邮箱</option>
@@ -317,7 +317,7 @@ export default function InboxWorkbench({
             </div>
             <div className="min-h-0 overflow-y-auto flex-1 workbench-history" aria-busy={listLoading || refreshing}>
               {folder === 'drafts' ? draftList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((draft) => (
-                <button key={draft.id} type="button" className="vault-row vault-outline text-left flex flex-col w-full px-4 py-2.5 border-0 border-b border-solid border-kumo-line bg-kumo-base hover:bg-kumo-tint cursor-pointer"
+                <button key={draft.id} type="button" className="mailbox-row mailbox-outline text-left flex flex-col w-full px-4 py-2.5 border-0 border-b border-solid border-kumo-line bg-kumo-base hover:bg-kumo-tint cursor-pointer"
                   onClick={() => edit(draft.id)}>
                   <span className="text-sm font-semibold w-full truncate">{draft.to || draft.fromAddress}</span>
                   <span className="text-sm text-kumo-subtle w-full truncate">{draft.subject || '（无主题）'}{draft.status !== 'draft' ? ' · 发送待确认' : ''}</span>
@@ -381,11 +381,11 @@ function markRead(data: Conversation, read: boolean): Conversation {
 function MailRow({ mail, selected, showAddress, onSelect, onStar }: {
   mail: ConversationSummary; selected: boolean; showAddress: boolean; onSelect: () => void; onStar: () => void;
 }) {
-  return <div className={`vault-row flex items-center border-b border-kumo-line ${selected ? 'bg-kumo-tint' : 'bg-kumo-base hover:bg-kumo-tint'}`}>
+  return <div className={`mailbox-row flex items-center border-b border-kumo-line ${selected ? 'bg-kumo-tint' : 'bg-kumo-base hover:bg-kumo-tint'}`}>
     <span aria-label={mail.unreadCount ? '未读' : undefined}
       className={`ml-3 mr-1 w-2 h-2 shrink-0 rounded-full ${mail.unreadCount ? 'bg-kumo-brand' : 'bg-transparent'}`} />
     <IconButton label={mail.starred ? '取消星标' : '加星标'} icon={<StarIcon size={16} weight={mail.starred ? 'fill' : 'regular'} />} onClick={onStar} />
-    <button type="button" onClick={onSelect} className="vault-outline flex-1 text-left min-w-0 py-2.5 pr-4 pl-2 bg-transparent border-0 cursor-pointer text-kumo-default">
+    <button type="button" onClick={onSelect} className="mailbox-outline flex-1 text-left min-w-0 py-2.5 pr-4 pl-2 bg-transparent border-0 cursor-pointer text-kumo-default">
       <span className="flex items-center gap-2 min-w-0">
         <span className={`text-sm truncate ${mail.unreadCount ? 'font-semibold' : ''}`}>{mail.outgoing ? mail.toAddress : senderLabel(mail.fromName, mail.fromAddress)}</span>
         {mail.threadCount > 1 ? <span className="rounded-full px-1.5 bg-kumo-fill text-kumo-subtle text-xs">{mail.threadCount}</span> : null}

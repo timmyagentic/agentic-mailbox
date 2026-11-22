@@ -33,13 +33,13 @@ export function LoginView({ edition, error, busy, onLogin, onCertificateLogin }:
 
   return (
     <main className="login-page">
-      <aside className="login-story" aria-labelledby="vault-title">
+      <aside className="login-story" aria-labelledby="mailbox-title">
         <div className="login-brand">
           <div className="brand-mark brand-mark--large" aria-hidden="true">
             <Archive size={28} />
           </div>
           <div>
-            <h1 id="vault-title">Mailbox Vault</h1>
+            <h1 id="mailbox-title">Agentic Mailbox</h1>
             <p>邮箱资产管理</p>
           </div>
         </div>
@@ -141,14 +141,14 @@ export function LoginView({ edition, error, busy, onLogin, onCertificateLogin }:
           </button>}
           {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
 
-          {edition === 'hosted' && <a className="login-local-download" href="/downloads/mailbox-vault-mac-arm64.zip">下载本地版 · Mac（Apple Silicon）</a>}
+          {edition === 'hosted' && <a className="login-local-download" href="/downloads/agentic-mailbox-mac-arm64.zip">下载本地版 · Mac（Apple Silicon）</a>}
           <p className="login-submit-hint">
             <Keyboard size={17} aria-hidden="true" />
             按 Enter 提交
           </p>
           <footer className="login-footer">
             <ShieldCheck size={15} aria-hidden="true" />
-            <span>{edition === 'hosted' ? '托管版 · Mailbox Vault' : 'Mailbox Vault'}</span>
+            <span>{edition === 'hosted' ? '托管版 · Agentic Mailbox' : 'Agentic Mailbox'}</span>
           </footer>
         </div>
       </section>

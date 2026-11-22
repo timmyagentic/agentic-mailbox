@@ -1,15 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, existsSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { localData as data, localPort as port } from './local-settings.mjs';
 
 process.umask(0o077);
-const data = resolve(process.env.VAULT_DATA_DIR || join(homedir(), 'Library/Application Support/Mailbox Vault'));
 const run = script => execFileSync('/usr/bin/osascript', ['-e', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 try {
   const provider = run('choose from list {"Google", "Microsoft"} with prompt "选择你自己的 OAuth 应用"');
   if (provider === 'false') process.exit(0);
-  const port = Number(process.env.VAULT_LOCAL_PORT || 8787);
   const callback = 'http://127.0.0.1:' + port + '/api/oauth/' + (provider === 'Google' ? 'gmail' : 'outlook') + '/callback';
   run(`display dialog "请在自己的 Web 应用中登记以下回调地址" default answer "${callback}" buttons {"取消", "继续"} default button "继续"`);
   const file = join(data, 'oauth.json');

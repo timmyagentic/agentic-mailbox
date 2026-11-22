@@ -5,64 +5,64 @@
 @import "tailwindcss/theme.css";
 @import "tailwindcss/utilities.css";
 
-.vault-workbench {
+.mailbox-workbench {
   height: 100dvh;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-.vault-workbench .workbench-content {
+.mailbox-workbench .workbench-content {
   min-height: 0;
 }
 
-.vault-workbench .vault-row {
+.mailbox-workbench .mailbox-row {
   min-height: 58px;
 }
 
-.vault-workbench :is(.vault-body, .ProseMirror) {
+.mailbox-workbench :is(.mailbox-body, .ProseMirror) {
   font-size: 0.9375rem;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 
-.vault-workbench :is(.vault-body, .ProseMirror) :is(p, ul, ol, blockquote) {
+.mailbox-workbench :is(.mailbox-body, .ProseMirror) :is(p, ul, ol, blockquote) {
   margin: 0 0 0.9em;
 }
 
-.vault-workbench :is(.vault-body, .ProseMirror) blockquote {
+.mailbox-workbench :is(.mailbox-body, .ProseMirror) blockquote {
   border-left: 2px solid var(--color-kumo-line);
   padding-inline-start: 0.85rem;
   color: var(--color-kumo-subtle);
 }
 
-.vault-workbench :is(.vault-body, .ProseMirror) :is(ul, ol) {
+.mailbox-workbench :is(.mailbox-body, .ProseMirror) :is(ul, ol) {
   padding-inline-start: 1.5em;
 }
 
-.vault-workbench .ProseMirror {
+.mailbox-workbench .ProseMirror {
   min-height: 148px;
   outline: 0;
   padding: 12px;
 }
 
-.vault-workbench .vault-compose :focus-within .ProseMirror {
+.mailbox-workbench .mailbox-compose :focus-within .ProseMirror {
   caret-color: var(--color-kumo-brand);
 }
 
-.vault-workbench .vault-body pre {
+.mailbox-workbench .mailbox-body pre {
   white-space: pre-wrap;
   font: inherit;
   margin: 0;
 }
 
-.vault-workbench .workbench-history {
+.mailbox-workbench .workbench-history {
   scrollbar-width: thin;
 }
 
-.vault-workbench .vault-outline {
+.mailbox-workbench .mailbox-outline {
   outline: none;
 }
 
-.vault-workbench .vault-outline:focus-visible {
+.mailbox-workbench .mailbox-outline:focus-visible {
   outline: 2px solid var(--color-kumo-brand);
   outline-offset: -2px;
 }

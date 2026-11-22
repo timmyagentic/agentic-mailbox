@@ -1,12 +1,12 @@
-# Mailbox Vault
+# Agentic Mailbox
 
-Mailbox Vault is a private Cloudflare-native inbox for managed aliases on `emomo.net` and connected QQ, NetEase 163, Gmail and Outlook mailboxes. It stores mail metadata and text in D1 and attachments in private R2 storage.
+Agentic Mailbox is a private Cloudflare-native inbox for managed aliases on `emomo.net` and connected QQ, NetEase 163, Gmail and Outlook mailboxes. It stores mail metadata and text in D1 and attachments in private R2 storage.
 
 ## Run locally
 
 On Apple Silicon macOS, unzip the local download from the hosted login page and double-click **打开本地邮箱.command**. The package contains Node, workerd and the built application. It listens on loopback and opens your browser with a single-use local login. Keep the Terminal window open while using it. The package is distributed as a command-line launcher without Apple notarization.
 
-For a source checkout, install Node 22.12 or newer, run `npm ci`, then `npm start`. The default URL is `http://127.0.0.1:8787`. Stop with Ctrl+C. Set `VAULT_DATA_DIR` and `VAULT_LOCAL_PORT` to customize storage and port. On macOS data persists in `~/Library/Application Support/Mailbox Vault`. Back up this directory including `identity.json`, which contains the login password and encryption key. Restore it with the application stopped.
+For a source checkout, install Node 22.12 or newer, run `npm ci`, then `npm start`. The default URL is `http://127.0.0.1:8787`. Stop with Ctrl+C. Set `AGENTIC_MAILBOX_DATA_DIR` and `AGENTIC_MAILBOX_LOCAL_PORT` to customize storage and port. On macOS data persists in `~/Library/Application Support/Agentic Mailbox`. Upgrades reuse the previous edition’s data directory if it already exists. Back up the active data directory including `identity.json`, which contains the login password and encryption key. Restore it with the application stopped.
 
 Gmail can connect using an account's 16-character app password when Google offers that option. QQ/Foxmail and 163 use their own client authorization codes. To use personal OAuth clients, run **配置本机 OAuth.command** on macOS, or set the corresponding client ID and secret pairs in `oauth.json` in the local data directory. Register `http://127.0.0.1:8787/api/oauth/gmail/callback` and/or `http://127.0.0.1:8787/api/oauth/outlook/callback` with your own provider apps. Restart after changes. The local runtime has no cloud storage, forwarding, Workers AI or managed domain sending bindings.
 
@@ -14,7 +14,7 @@ Gmail can connect using an account's 16-character app password when Google offer
 
 Register a username and password on the hosted site to create a private mailbox space. Each member has a SQLite Durable Object, a distinct R2 object prefix, and independently authorized external accounts. Choose a unique password and save it in your password manager. The original administrator workspace uses its existing password or device certificate and retains the managed domain, delivery rules and D1 data. Hosted provider credentials are provisioned once by the site operator. Availability still depends on provider consent policies and API enablement.
 
-Build the Mac distribution from this repository on Apple Silicon using `npm run build`, `npx wrangler deploy --dry-run --outdir .wrangler/local-worker` and `node scripts/package-mac.mjs`. The archive contains only the allowlisted runtime files and dependencies. The hosted download reads the fixed R2 key `releases/mailbox-vault-mac-arm64.zip`.
+Build the Mac distribution from this repository on Apple Silicon using `npm run build`, `npx wrangler deploy --dry-run --outdir .wrangler/local-worker` and `node scripts/package-mac.mjs`. The archive contains only the allowlisted runtime files and dependencies. The hosted download reads the fixed R2 key `releases/agentic-mailbox-mac-arm64.zip`.
 
 ## MVP scope
 
@@ -33,7 +33,7 @@ This project provisions routing aliases, not login-capable IMAP/SMTP mailboxes, 
 ## Connected mailboxes
 
 1. In QQ Mail or NetEase 163, enable IMAP and generate a client authorization code.
-2. In Mailbox Vault, open **邮箱设置 → 接入邮箱**, choose QQ or NetEase 163, and enter the address and authorization code. QQ Mail, Foxmail and consumer 163 accounts are supported.
+2. In Agentic Mailbox, open **邮箱设置 → 接入邮箱**, choose QQ or NetEase 163, and enter the address and authorization code. QQ Mail, Foxmail and consumer 163 accounts are supported.
 3. Click **一键刷新** to fetch mail for all connected accounts. The **全部邮箱** filter includes connected accounts and managed aliases. Account errors appear individually and the account's **更新授权码** action preserves its imported mail.
 
 QQ, 163 and Gmail initially import up to 25 recent inbox messages. Outlook starts with the last 30 days of its inbox. Each manual refresh can import up to 25 messages per account. The account status shows when another refresh is needed. Messages larger than 10 MiB are reported and remain in the source mailbox. The app imports the initial read flag and tracks subsequent read changes locally. IMAP PEEK preserves flags and message contents in the source mailbox.
@@ -44,7 +44,7 @@ The unified inbox follows [Zero](https://github.com/Mail-0/Zero/blob/4b642df/app
 
 ### Gmail and Outlook OAuth
 
-In **邮箱设置 → 接入邮箱**, choose Gmail or Outlook, then approve access on the provider's consent screen. Mailbox Vault attempts the first sync after the redirect and shows its result. A saved connection can retry sync after an error. Use **重新授权** to renew a connection while keeping its stored mail.
+In **邮箱设置 → 接入邮箱**, choose Gmail or Outlook, then approve access on the provider's consent screen. Agentic Mailbox attempts the first sync after the redirect and shows its result. A saved connection can retry sync after an error. Use **重新授权** to renew a connection while keeping its stored mail.
 
 ### Provider setup for maintainers
 
@@ -61,7 +61,7 @@ See [Zero’s Google driver](https://github.com/Mail-0/Zero/blob/4b642df/apps/se
 
 ## Conversation workspace
 
-The workbench keeps the unified Inbox and account filter, with Sent, Drafts, Archive, and Trash views. It groups messages within one connected address using their message IDs and reply references. The reader shows the most recent 50 messages in a conversation. Folder, star, and read changes are stored by Mailbox Vault.
+The workbench keeps the unified Inbox and account filter, with Sent, Drafts, Archive, and Trash views. It groups messages within one connected address using their message IDs and reply references. The reader shows the most recent 50 messages in a conversation. Folder, star, and read changes are stored by Agentic Mailbox.
 
 Compose, reply, and forward from an enabled address. QQ and 163 send through their TLS SMTP servers on port 465 using the existing client authorization code. Gmail and Outlook send through their official mail APIs with the connected account’s delegated permission. Managed aliases send through the Worker `EMAIL` binding once the domain has been onboarded to Cloudflare Email Sending. Replies pass threading headers and forwards can include the source attachments. All attachments in a message share a 5 MiB limit. Outlook also caps the encoded message at 4 MB, including the base64 expansion, body and headers. Send attempts with an uncertain result leave the draft locked for review.
 
@@ -75,7 +75,7 @@ The workbench adapts the Apache-2.0 source layout, components and styles of [Clo
 flowchart LR
   Sender[Internet sender] --> Routing[Cloudflare Email Routing]
   Routing -->|explicit rules| Gmail[Verified Gmail destination]
-  Routing -->|catch-all| Worker[Mailbox Vault Worker]
+  Routing -->|catch-all| Worker[Agentic Mailbox Worker]
   Worker -->|registered alias| Parser[postal-mime]
   Worker -->|unknown or disabled| Reject[SMTP rejection]
   Parser --> D1[(D1 metadata and bodies)]
@@ -123,7 +123,7 @@ The checked-in Wrangler configuration binds these isolated resources:
 
 | Resource | Name |
 | --- | --- |
-| Worker | `mailbox-vault` |
+| Worker | `agentic-mailbox` |
 | Custom domain | `mailbox.timmyagentic.si` |
 | D1 | `mailbox-vault` |
 | R2 | `mailbox-vault-attachments` |
@@ -144,7 +144,7 @@ npm run db:migrate:remote
 npm run deploy
 ```
 
-After deployment, point the `emomo.net` Email Routing catch-all rule at the `mailbox-vault` Worker. Explicit aliases such as existing Gmail forwarding rules continue to take precedence.
+After deployment, point the `emomo.net` Email Routing catch-all rule at the `agentic-mailbox` Worker. Explicit aliases such as existing Gmail forwarding rules continue to take precedence.
 
 ## Security model
 

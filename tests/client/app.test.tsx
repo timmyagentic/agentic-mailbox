@@ -17,7 +17,7 @@ const email: EmailDetail = {
   rawSize: 100, attachmentCount: 0, messageId: 'test-message', bodyText: '这是测试邮件正文。', sentAt: null, attachments: [],
 };
 const bootstrap: BootstrapPayload = {
-  appName: 'Mailbox Vault', primaryDomain: 'example.com', adminEmail: 'admin@example.com',
+  appName: 'Agentic Mailbox', primaryDomain: 'example.com', adminEmail: 'admin@example.com',
   stats: { aliasCount: 1, activeAliasCount: 1, emailCount: 1, unreadCount: 1, attachmentCount: 0, attachmentBytes: 0 },
   recentEmails: [email], recentAliases: [], mailAccounts: [],
 };
@@ -224,7 +224,7 @@ it('retries a cancelled reauthorization for the original account', async () => {
   vi.mocked(mailboxApi.bootstrap).mockResolvedValue({ ...bootstrap, mailAccounts: [account], oauthProviders: ['outlook'] });
   vi.mocked(mailboxApi.finishMailOAuth).mockRejectedValue(new ApiRequestError(400, 'oauth_authorization_cancelled', '邮箱授权未完成。'));
   vi.mocked(mailboxApi.startMailOAuth).mockRejectedValue(new Error('模拟服务暂不可用'));
-  window.sessionStorage.setItem('mailbox-vault-oauth-reconnect', 'outlook:' + account.id);
+  window.sessionStorage.setItem('agentic-mailbox-oauth-reconnect', 'outlook:' + account.id);
   window.history.replaceState(null, '', '/#mailOAuth=outlook&state=state-fixture&error=access_denied');
   render(<App />);
   await screen.findByText('Outlook 授权已取消');

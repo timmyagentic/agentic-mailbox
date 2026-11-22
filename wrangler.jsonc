@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "mailbox-vault",
+	"name": "agentic-mailbox",
 	"main": "src/worker/entry.ts",
   "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
   "durable_objects": { "bindings": [{ "name": "MEMBERS", "class_name": "MemberMailbox" }] },
@@ -27,7 +27,7 @@
 		}
 	],
 	"vars": {
-		"APP_NAME": "Mailbox Vault",
+		"APP_NAME": "Agentic Mailbox",
 		"MAIL_OAUTH_ORIGIN": "https://mailbox.timmyagentic.si",
 		"PRIMARY_DOMAIN": "emomo.net",
 		"ADMIN_EMAIL": "qianbi3956001@gmail.com",

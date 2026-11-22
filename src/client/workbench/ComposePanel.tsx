@@ -60,7 +60,7 @@ export default function ComposePanel({
   };
 
   return (
-    <section className="flex flex-col min-w-0 bg-kumo-base vault-compose" aria-label="邮件编辑器">
+    <section className="flex flex-col min-w-0 bg-kumo-base mailbox-compose" aria-label="邮件编辑器">
       <div className="flex items-center justify-between border-b border-kumo-line px-4 py-2.5 md:px-6">
         <h2 className="text-base font-semibold">
           {input.mode === 'reply' ? '回复邮件' : input.mode === 'forward' ? '转发邮件' : '写信'}

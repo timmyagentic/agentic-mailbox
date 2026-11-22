@@ -44,7 +44,7 @@ export async function withImapInbox<T>(
     port: 993,
     secure: true,
     auth: { user: account.address, pass: account.authorizationCode },
-    clientInfo: { name: 'Mailbox Vault' },
+    clientInfo: { name: 'Agentic Mailbox' },
     disableAutoIdle: true,
     disableCompression: true,
     connectionTimeout: 8_000,

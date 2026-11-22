@@ -1,5 +1,5 @@
 {
-  "name": "mailbox-vault",
+  "name": "agentic-mailbox",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,8 +15,8 @@
     "test:watch": "vitest",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build && wrangler deploy --dry-run",
     "cf:types": "wrangler types",
-    "db:migrate:local": "wrangler d1 migrations apply mailbox-vault --local",
-    "db:migrate:remote": "wrangler d1 migrations apply mailbox-vault --remote",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {

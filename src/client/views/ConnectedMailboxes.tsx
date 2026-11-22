@@ -237,7 +237,7 @@ function OAuthSetup({
   if (!ready) return <p>{names[provider]} 暂不可用，请联系站点维护者。</p>;
   return (
     <div className="mailbox-connect-body">
-      <p>在 {brand} 页面选择要接入的邮箱，并允许 Mailbox Vault 读取和发送邮件。授权后会自动同步。</p>
+      <p>在 {brand} 页面选择要接入的邮箱，并允许 Agentic Mailbox 读取和发送邮件。授权后会自动同步。</p>
       {error ? <p role="alert" className="mailbox-connect-error">{error}</p> : null}
       <div className="mailbox-connect-actions">
         <button className="button button--primary" type="button" disabled={pending} onClick={() => void proceed()}>

@@ -63,7 +63,7 @@ function ThreadMessage({ mail, selected, onReply, onForward }: {
   const sender = senderLabel(mail.fromName, mail.fromAddress);
   return (
     <details open={selected || undefined} className="group border-b border-kumo-line">
-      <summary className="vault-outline list-none cursor-pointer flex items-center gap-3 px-4 py-3 md:px-6 hover:bg-kumo-tint/50">
+      <summary className="mailbox-outline list-none cursor-pointer flex items-center gap-3 px-4 py-3 md:px-6 hover:bg-kumo-tint/50">
         <span className="rounded-full bg-kumo-fill w-9 h-9 flex items-center justify-center text-sm font-semibold shrink-0" aria-hidden="true">{sender[0]?.toUpperCase() || '@'}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{sender}</span>

@@ -53,7 +53,7 @@ export class MemberMailbox {
   constructor(private ctx: DurableObjectState, private bindings: Env) {}
   async fetch(request: Request): Promise<Response> {
     try {
-      const username = request.headers.get('X-Vault-User') ?? '';
+      const username = request.headers.get('X-Agentic-Mailbox-User') ?? '';
       if (this.bindings.MEMBERS?.idFromName(username).toString() !== this.ctx.id.toString()) throw new Error('Tenant mismatch');
       const path = new URL(request.url).pathname;
       const storage = this.ctx.storage;

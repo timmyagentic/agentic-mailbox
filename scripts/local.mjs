@@ -1,16 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, platform } from 'node:os';
-import { join, resolve } from 'node:path';
+import { platform } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { Miniflare } from 'miniflare';
+import { localData as data, localPort as port } from './local-settings.mjs';
 
 process.umask(0o077);
 const root = fileURLToPath(new URL('../', import.meta.url));
 process.chdir(root);
-const data = resolve(process.env.VAULT_DATA_DIR || join(homedir(),
-  platform() === 'darwin' ? 'Library/Application Support' : '.local/share', 'Mailbox Vault'));
 mkdirSync(data, { recursive: true, mode: 0o700 });
 const identityFile = join(data, 'identity.json');
 if (!existsSync(identityFile)) {
@@ -23,7 +22,6 @@ if (!existsSync(identityFile)) {
   finally { rmSync(temporary); }
 }
 const identity = JSON.parse(readFileSync(identityFile, 'utf8'));
-const port = Number(process.env.VAULT_LOCAL_PORT || 8787);
 const origin = 'http://127.0.0.1:' + port;
 const oauthFile = join(data, 'oauth.json');
 const oauth = existsSync(oauthFile) ? JSON.parse(readFileSync(oauthFile, 'utf8')) : {};
@@ -39,7 +37,7 @@ const runtime = new Miniflare({
   d1Persist: join(data, 'database'), r2Persist: join(data, 'attachments'),
   assets: { directory: 'dist', binding: 'ASSETS', routerConfig: { has_user_worker: true, invoke_user_worker_ahead_of_assets: true },
     assetConfig: { not_found_handling: 'single-page-application' } },
-  bindings: { ...bindings, ...identity, LOCAL_MODE: '1', APP_NAME: 'Mailbox Vault · 本地版',
+  bindings: { ...bindings, ...identity, LOCAL_MODE: '1', APP_NAME: 'Agentic Mailbox · 本地版',
     ADMIN_EMAIL: 'owner@localhost.local', PRIMARY_DOMAIN: '', MAIL_OAUTH_ORIGIN: origin },
 });
 try {
@@ -58,7 +56,7 @@ try {
   const ticket = randomBytes(32).toString('hex');
   await db.batch([db.prepare('DELETE FROM local_launch'), db.prepare('INSERT INTO local_launch VALUES (?,?)').bind(ticket, Date.now() + 120_000)]);
   console.log('本地邮箱已启动', origin, '\n数据目录', data, '\n关闭窗口或按 Ctrl+C 停止。');
-  if (!process.argv.includes('--no-open') && !process.env.VAULT_NO_OPEN) {
+  if (!process.argv.includes('--no-open') && !process.env.AGENTIC_MAILBOX_NO_OPEN && !process.env.VAULT_NO_OPEN) {
     const url = origin + '/#localUnlock=' + ticket;
     const opener = platform() === 'darwin' ? 'open' : platform() === 'win32' ? 'rundll32' : 'xdg-open';
     const args = platform() === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url];

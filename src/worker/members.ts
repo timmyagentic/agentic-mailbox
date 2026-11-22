@@ -1,4 +1,4 @@
-import { createSessionToken, readCookie, SESSION_COOKIE, sessionCookie, verifySessionToken } from './auth';
+import { createSessionToken, readSessionCookie, sessionCookie, verifySessionToken } from './auth';
 import { assertSameOrigin, HttpError, json, readJson } from './http';
 import type { Env } from './types';
 
@@ -26,14 +26,14 @@ export async function routeMember(request: Request, env: Env): Promise<Response 
       throw new HttpError(400, 'invalid_login', '用户名为 3–40 位字母、数字、下划线或短横线，密码需 12–256 位。');
     }
     return namespace.getByName(username).fetch(new Request(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Vault-User': username },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Agentic-Mailbox-User': username },
       body: JSON.stringify({ password: body.password }),
     }));
   }
   // These routes belong to the site itself, including the unauthenticated OAuth landing page.
   if ((path === '/api/session' && request.method !== 'GET') || path === '/api/session/certificate'
     || path === '/api/health' || /^\/api\/oauth\/(gmail|outlook)\/callback$/.test(path)) return null;
-  const raw = readCookie(request, SESSION_COOKIE);
+  const raw = readSessionCookie(request);
   if (!raw?.startsWith('member:')) return null;
   const [, username, token] = raw.split(':');
   if (!usernamePattern.test(username) || !await verifySessionToken(token ?? '', username, memberSecret(env))) {
@@ -43,6 +43,6 @@ export async function routeMember(request: Request, env: Env): Promise<Response 
   if (path === '/api/session') return json({ authenticated: true, user: { email: username }, edition: 'hosted' });
   const forwarded = new Request(request);
   forwarded.headers.set('Cookie', sessionCookie(token, request.url).split(';')[0]);
-  forwarded.headers.set('X-Vault-User', username);
+  forwarded.headers.set('X-Agentic-Mailbox-User', username);
   return namespace.getByName(username).fetch(forwarded);
 }

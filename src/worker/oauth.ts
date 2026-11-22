@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import type { OAuthProvider } from '../shared/types';
 import { normalizeAddress } from '../shared/validation';
 import { openCredential, sealCredential } from './account-credentials';
-import { readCookie, SESSION_COOKIE } from './auth';
+import { readSessionCookie } from './auth';
 import { boundedBody, HttpError } from './http';
 import type { Env } from './types';
 
@@ -65,7 +65,7 @@ function checkOrigin(url: URL, expected: URL) {
 }
 
 async function sessionHash(request: Request) {
-  const session = readCookie(request, SESSION_COOKIE);
+  const session = readSessionCookie(request);
   if (!session) throw new HttpError(401, 'authentication_required', '请先登录管理端。');
   return sha256(session);
 }

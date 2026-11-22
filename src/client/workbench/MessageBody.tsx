@@ -30,6 +30,6 @@ export function asHtml(text: string) {
 export function MessageBody({ text, html }: { text: string; html?: string }) {
   const safe = useMemo(() => html ? cleanBody(html) : '', [html]);
   return safe
-    ? <div className="vault-body" dangerouslySetInnerHTML={{ __html: safe }} />
-    : <div className="vault-body"><pre>{text || '（邮件没有正文）'}</pre></div>;
+    ? <div className="mailbox-body" dangerouslySetInnerHTML={{ __html: safe }} />
+    : <div className="mailbox-body"><pre>{text || '（邮件没有正文）'}</pre></div>;
 }

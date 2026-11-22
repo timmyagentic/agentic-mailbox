@@ -44,6 +44,15 @@ try {
   const a = await identity('member-a', true);
   const b = await identity('member-b', true);
   const idA = await identity('member-a', false);
+  assert.match(idA, /^agentic_mailbox_session=/);
+  const legacy = idA.replace(/^agentic_mailbox_session=/, 'mailbox_vault_session=');
+  assert.equal((await request('/api/session', legacy)).status, 200);
+  assert.equal((await (await request('/api/session', legacy)).json()).authenticated, true);
+  const logout = await request('/api/session', legacy, undefined, 'DELETE');
+  assert.equal(logout.status, 200);
+  for (const name of ['agentic_mailbox_session', 'mailbox_vault_session']) {
+    assert.match(logout.headers.get('Set-Cookie'), new RegExp(name + '=;[^,]*Max-Age=0'));
+  }
   assert.equal((await request('/api/members/register', '', { username: 'member-a', password: 'another-user-password' })).status, 409);
   assert.equal((await request('/api/members/login', '', { username: 'member-a', password: 'another-user-password' })).status, 401);
   assert.equal((await request('/api/bootstrap', a.replace('member-a', 'member-b'))).status, 401);
@@ -57,7 +66,7 @@ try {
   const aId = await add(a);
   const bId = await add(b);
   assert.notEqual(aId, bId);
-  const home = await request('/api/bootstrap', idA, undefined, 'GET', { 'X-Vault-User': 'member-b' });
+  const home = await request('/api/bootstrap', idA, undefined, 'GET', { 'X-Agentic-Mailbox-User': 'member-b' });
   const bootstrap = await home.json();
   assert.equal(home.status, 200, JSON.stringify(bootstrap));
   assert.deepEqual(bootstrap.mailAccounts.map(account => account.id), [aId]);

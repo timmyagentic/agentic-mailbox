@@ -1,7 +1,7 @@
 import type { BootstrapPayload, DraftInput } from '../shared/types';
 import { listMailAccounts, refreshMailAccount, saveMailAccount } from './accounts';
 import {
-  clearSessionCookie,
+  clearedSessionCookies,
   createSessionToken,
   getSession,
   passwordsMatch,
@@ -47,7 +47,7 @@ async function health(env: Env): Promise<Response> {
     await env.DB.prepare('SELECT 1').first();
     return json({
       ok: true,
-      service: 'mailbox-vault',
+      service: 'agentic-mailbox',
       dependencies: { database: 'ready', objectStorage: 'configured' },
       timestamp: new Date().toISOString(),
     });
@@ -55,7 +55,7 @@ async function health(env: Env): Promise<Response> {
     return json(
       {
         ok: false,
-        service: 'mailbox-vault',
+        service: 'agentic-mailbox',
         dependencies: { database: 'unavailable', objectStorage: 'configured' },
         timestamp: new Date().toISOString(),
       },
@@ -114,7 +114,7 @@ async function handleSession(request: Request, env: Env): Promise<Response> {
     return json(
       { authenticated: false, user: null },
       200,
-      { 'Set-Cookie': clearSessionCookie(request.url) },
+      clearedSessionCookies(request.url),
     );
   }
 

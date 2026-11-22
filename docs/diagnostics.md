@@ -1,6 +1,6 @@
 # Operational diagnostics
 
-Mailbox Vault uses the existing Cloudflare Workers Logs store. There is no second database of logs, browser analytics service, or polling loop. The checked-in `observability.enabled` setting already enables Workers Logs; installing these code changes in production remains a separate deployment action.
+Agentic Mailbox uses the existing Cloudflare Workers Logs store. There is no second database of logs, browser analytics service, or polling loop. The checked-in `observability.enabled` setting already enables Workers Logs; installing these code changes in production remains a separate deployment action.
 
 ## Finding an operation
 
@@ -9,7 +9,7 @@ Every API response includes `X-Request-Id`. Error responses also include `error.
 For new events during a debugging session, use the installed Wrangler CLI:
 
 ```bash
-npx wrangler tail mailbox-vault --format json
+npx wrangler tail agentic-mailbox --format json
 ```
 
 Tail is a live stream, not a way to retrieve earlier activity. Historical queries require access to Workers Observability; ordinary Wrangler deployment access does not necessarily grant that permission. Retention and sampling depend on the Cloudflare account configuration. Do not infer that an event never happened merely because its log is unavailable.
