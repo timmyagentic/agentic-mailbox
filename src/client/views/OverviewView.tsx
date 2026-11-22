@@ -1,14 +1,14 @@
 import { ArrowRight, AtSign, Files, HardDrive, Inbox, MailOpen, Plus } from 'lucide-react';
 import type { DashboardStats, EmailSummary, MailAlias } from '../../shared/types';
 import { formatBytes, formatDate, senderLabel } from '../format';
-import type { ViewName } from '../components/Layout';
+import type { ViewName } from '../workbench/InboxWorkbench';
 
 type OverviewViewProps = {
   stats: DashboardStats;
   emails: EmailSummary[];
   aliases: MailAlias[];
   onNavigate: (view: ViewName) => void;
-  onCreateAlias: () => void;
+  onCreateAlias?: () => void;
   onOpenEmail: (id: string) => void;
 };
 
@@ -35,10 +35,10 @@ export function OverviewView({
           <h1>邮箱概览</h1>
           <p>当前邮箱、邮件与附件状态</p>
         </div>
-        <button className="button button--primary" type="button" onClick={onCreateAlias}>
+        {onCreateAlias && <button className="button button--primary" type="button" onClick={onCreateAlias}>
           <Plus size={17} />
           新建邮箱
-        </button>
+        </button>}
       </header>
 
       <section className="metrics-grid" aria-label="关键指标">

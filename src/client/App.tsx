@@ -1,20 +1,34 @@
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type {
   AttachmentItem,
   BootstrapPayload,
   DashboardStats,
-  EmailDetail,
   EmailSummary,
   MailAlias,
+  MailRefreshResult,
+  OAuthProvider,
 } from '../shared/types';
 import { ApiRequestError, mailboxApi } from './api';
-import { Layout, type ViewName } from './components/Layout';
+import type { ViewName } from './workbench/InboxWorkbench';
 import { AliasesView } from './views/AliasesView';
 import { FilesView } from './views/FilesView';
-import { InboxView } from './views/InboxView';
+import { ConnectedMailboxes, type MailboxConnectionResult } from './views/ConnectedMailboxes';
 import { LoginView } from './views/LoginView';
 import { OverviewView } from './views/OverviewView';
+
+const InboxWorkbench = lazy(() => import('./workbench/InboxWorkbench'));
+const reconnectStorageKey = 'agentic-mailbox-oauth-reconnect';
+
+function takeReconnectTarget(provider: OAuthProvider): string | undefined {
+  try {
+    const target = window.sessionStorage.getItem(reconnectStorageKey);
+    window.sessionStorage.removeItem(reconnectStorageKey);
+    return target?.startsWith(`${provider}:`) ? target.slice(provider.length + 1) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const EMPTY_STATS: DashboardStats = {
   aliasCount: 0,
@@ -28,29 +42,31 @@ const EMPTY_STATS: DashboardStats = {
 type Toast = { type: 'success' | 'error'; message: string } | null;
 
 export default function App() {
+  const [edition, setEdition] = useState<'hosted' | 'local'>();
   const [checkingSession, setCheckingSession] = useState(true);
+  const [connectingProvider, setConnectingProvider] = useState<OAuthProvider | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [activeView, setActiveView] = useState<ViewName>('overview');
+  const [activeView, setActiveView] = useState<ViewName>('inbox');
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [aliases, setAliases] = useState<MailAlias[]>([]);
   const [emails, setEmails] = useState<EmailSummary[]>([]);
   const [files, setFiles] = useState<AttachmentItem[]>([]);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResults, setRefreshResults] = useState<MailRefreshResult[]>([]);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectionResult, setConnectionResult] = useState<MailboxConnectionResult | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [detail, setDetail] = useState<EmailDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
-  const emailRequest = useRef(0);
 
   const showError = useCallback((error: unknown) => {
     const message = error instanceof Error ? error.message : '操作失败，请稍后重试。';
     setLoginError(message);
     if (error instanceof ApiRequestError && error.status === 401) {
-      emailRequest.current += 1;
-      setDetail(null);
-      setDetailLoading(false);
+      setSelectedId(null);
       setAuthenticated(false);
     }
     setToast({ type: 'error', message });
@@ -69,18 +85,80 @@ export default function App() {
     setFiles(filePayload.files);
   }, []);
 
+  const syncConnection = useCallback(async (provider: OAuthProvider, accountId: string) => {
+    setRefreshing(true);
+    try {
+      const { result } = await mailboxApi.refreshMailAccount(accountId);
+      setRefreshResults((current) => [...current.filter(({ id }) => id !== accountId), result]);
+      if (result.error) {
+        setConnectionResult({ provider, accountId, status: 'sync_failed', message: result.error,
+          requiresReauthorization: result.requiresReauthorization });
+      } else {
+        const summary = result.imported > 0 ? `已同步 ${result.imported} 封邮件。` : '邮箱可用，目前暂无新邮件。';
+        setConnectionResult({ provider, status: 'connected',
+          message: result.hasMore ? `${summary}还有邮件待同步，可继续刷新。` : summary });
+      }
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        showError(error);
+        return;
+      }
+      setConnectionResult({ provider, accountId, status: 'sync_failed',
+        message: error instanceof Error ? error.message : '暂时无法同步，请重试。' });
+    } finally {
+      setRefreshing(false);
+    }
+    await loadData().catch(showError);
+  }, [loadData, showError]);
+
   useEffect(() => {
+    let active = true;
     void mailboxApi
       .session()
       .then(async (session) => {
-        setAuthenticated(session.authenticated);
-        if (session.authenticated) {
-          await loadData();
+        if (!active) return;
+        setEdition(session.edition);
+        const unlock = new URLSearchParams(window.location.hash.slice(1)).get('localUnlock');
+        if (session.edition === 'local' && unlock) {
+          window.history.replaceState(null, '', window.location.pathname);
+          session = await mailboxApi.unlockLocal(unlock);
         }
+        setAuthenticated(session.authenticated);
+        const callback = new URLSearchParams(window.location.hash.slice(1));
+        const provider = callback.get('mailOAuth');
+        if (provider === 'gmail' || provider === 'outlook') {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          setActiveView('aliases');
+          const accountId = takeReconnectTarget(provider);
+          if (session.authenticated) {
+            try {
+              const { accountId: syncedId } = await mailboxApi.finishMailOAuth(provider, {
+                state: callback.get('state'), code: callback.get('code'), error: callback.get('error'),
+              });
+              setConnectingProvider(provider);
+              await syncConnection(provider, syncedId);
+              return;
+            } catch (error) {
+              if (error instanceof ApiRequestError && error.status === 401) {
+                showError(error);
+                return;
+              }
+              const cancelled = error instanceof ApiRequestError && error.code === 'oauth_authorization_cancelled';
+              setConnectionResult(cancelled ? { provider, accountId, status: 'cancelled' } : {
+                provider, accountId, status: 'failed',
+                message: error instanceof Error ? error.message : '请重新打开授权页。',
+              });
+            }
+          } else {
+            setLoginError('邮箱管理会话已过期，请重新登录后开始授权。');
+          }
+        }
+        if (session.authenticated) await loadData();
       })
-      .catch(showError)
-      .finally(() => setCheckingSession(false));
-  }, [loadData, showError]);
+      .catch((error) => { if (active) showError(error); })
+      .finally(() => { if (active) setCheckingSession(false); });
+    return () => { active = false; };
+  }, [loadData, showError, syncConnection]);
 
   useEffect(() => {
     if (!toast) return;
@@ -88,11 +166,13 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const login = async (password: string) => {
+  const login = async (password?: string, member?: { username: string; register: boolean }) => {
     setLoginBusy(true);
     setLoginError('');
     try {
-      const session = await mailboxApi.login(password);
+      const session = password === undefined
+        ? await mailboxApi.loginWithCertificate()
+        : member ? await mailboxApi.memberLogin(member.username, password, member.register) : await mailboxApi.login(password);
       setAuthenticated(session.authenticated);
       if (session.authenticated) {
         try {
@@ -119,23 +199,77 @@ export default function App() {
     setBootstrap(null);
     setAliases([]);
     setEmails([]);
+    setRefreshResults([]);
+    setConnectionResult(null);
+    setConnectOpen(false);
     setFiles([]);
     setLoginError('');
     setToast(null);
-    emailRequest.current += 1;
-    setDetail(null);
-    setDetailLoading(false);
+    setSelectedId(null);
   };
 
   const refresh = async () => {
-    setBusy(true);
+    setRefreshing(true);
     try {
+      const accounts = bootstrap?.mailAccounts ?? [];
+      const results = await Promise.all(accounts.map(async (account): Promise<MailRefreshResult> => {
+        try {
+          return (await mailboxApi.refreshMailAccount(account.id)).result;
+        } catch (error) {
+          return {
+            id: account.id, imported: 0, oversized: 0, hasMore: false, lastSyncAt: account.lastSyncAt,
+            error: error instanceof Error ? error.message : '邮箱同步失败。',
+          };
+        }
+      }));
+      setRefreshResults(results);
       await loadData();
-      setToast({ type: 'success', message: '数据已刷新。' });
+
+      const imported = results.reduce((total, result) => total + result.imported, 0);
+      const errors = results.filter((result) => result.error).length;
+      const more = results.some((result) => result.hasMore);
+      const receipt = imported > 0 ? `同步了 ${imported} 封邮件` : '收件箱已刷新';
+      setToast({
+        type: errors ? 'error' : 'success',
+        message: errors ? `${receipt}，${errors} 个邮箱同步失败。查看该账号的状态。`
+          : more ? `${receipt}。还有邮件待同步，可再刷新一次。` : `${receipt}。`,
+      });
     } catch (error) {
       showError(error);
     } finally {
-      setBusy(false);
+      setRefreshing(false);
+    }
+  };
+
+  const saveMailAccount = async (input: { email: string; authorizationCode: string }) => {
+    try {
+      const { account } = await mailboxApi.saveMailAccount(input);
+      setBootstrap((current) => current ? {
+        ...current,
+        mailAccounts: [...(current.mailAccounts ?? []).filter(({ id }) => id !== account.id), account]
+          .sort((a, b) => a.address.localeCompare(b.address)),
+      } : current);
+      setRefreshResults((current) => current.filter(({ id }) => id !== account.id));
+      setConnectionResult({ provider: account.provider, status: 'saved' });
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) showError(error);
+      throw error;
+    }
+  };
+
+  const authorizeMailbox = async (provider: OAuthProvider, accountId?: string) => {
+    try {
+      const { url } = await mailboxApi.startMailOAuth(provider, accountId);
+      try {
+        if (accountId) window.sessionStorage.setItem(reconnectStorageKey, `${provider}:${accountId}`);
+        else window.sessionStorage.removeItem(reconnectStorageKey);
+      } catch {
+        // The authorization itself still works when browser storage is unavailable.
+      }
+      window.location.assign(url);
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) showError(error);
+      throw error;
     }
   };
 
@@ -169,72 +303,35 @@ export default function App() {
     }
   };
 
-  const closeEmail = () => {
-    emailRequest.current += 1;
-    setDetail(null);
-    setDetailLoading(false);
-  };
-
   const navigate = (view: ViewName) => {
-    closeEmail();
+    if (view !== 'inbox') setSelectedId(null);
     setActiveView(view);
   };
 
-  const openEmail = async (id: string) => {
-    const request = ++emailRequest.current;
+  const openEmail = (id: string) => {
     setActiveView('inbox');
-    setDetail(null);
-    setDetailLoading(true);
-    try {
-      const { email } = await mailboxApi.email(id);
-      if (request !== emailRequest.current) return;
-      setDetail(email);
-      if (!email.readAt) {
-        await mailboxApi.setEmailRead(id, true);
-        if (request !== emailRequest.current) return;
-        const readAt = new Date().toISOString();
-        setDetail((current) => (current?.id === id ? { ...current, readAt } : current));
-        setEmails((current) => current.map((item) => (item.id === id ? { ...item, readAt } : item)));
-        setBootstrap((current) =>
-          current
-            ? { ...current, stats: { ...current.stats, unreadCount: Math.max(0, current.stats.unreadCount - 1) } }
-            : current,
-        );
-      }
-    } catch (error) {
-      if (request === emailRequest.current) showError(error);
-    } finally {
-      if (request === emailRequest.current) setDetailLoading(false);
-    }
-  };
-
-  const toggleRead = async (id: string, currentlyRead: boolean) => {
-    try {
-      await mailboxApi.setEmailRead(id, !currentlyRead);
-      const readAt = currentlyRead ? null : new Date().toISOString();
-      setDetail((current) => (current?.id === id ? { ...current, readAt } : current));
-      await loadData();
-    } catch (error) {
-      showError(error);
-    }
+    setSelectedId(id);
   };
 
   if (checkingSession) {
     return (
       <main className="boot-screen">
-        <div className="brand-loader"><span className="spinner" /><strong>Agentic Mailbox</strong></div>
+        <div className="brand-loader" role="status"><span className="spinner" /><strong>
+          {connectingProvider ? `正在同步 ${connectingProvider === 'gmail' ? 'Gmail' : 'Outlook'} 邮件…` : 'Agentic Mailbox'}
+        </strong></div>
       </main>
     );
   }
 
   if (!authenticated) {
-    return <LoginView error={loginError} busy={loginBusy} onLogin={login} />;
+    return <LoginView edition={edition} error={loginError} busy={loginBusy} onLogin={login} onCertificateLogin={() => login()} />;
   }
 
   const stats = bootstrap?.stats ?? EMPTY_STATS;
   const appName = bootstrap?.appName ?? 'Agentic Mailbox';
   const primaryDomain = bootstrap?.primaryDomain ?? 'emomo.net';
-  const adminEmail = bootstrap?.adminEmail ?? '';
+  const accounts = bootstrap?.mailAccounts ?? [];
+  const mailSources = [...aliases, ...accounts];
 
   const openCreate = () => {
     setActiveView('aliases');
@@ -243,51 +340,60 @@ export default function App() {
 
   return (
     <>
-      <Layout
-        appName={appName}
-        primaryDomain={primaryDomain}
-        adminEmail={adminEmail}
-        activeView={activeView}
-        stats={stats}
-        onNavigate={navigate}
-        onLogout={() => void logout()}
-      >
-        {activeView === 'overview' ? (
-          <OverviewView
-            stats={stats}
-            emails={emails}
-            aliases={aliases}
-            onNavigate={navigate}
-            onCreateAlias={openCreate}
-            onOpenEmail={(id) => void openEmail(id)}
-          />
-        ) : null}
-        {activeView === 'inbox' ? (
-          <InboxView
-            emails={emails}
-            aliases={aliases}
-            detail={detail}
-            detailLoading={detailLoading}
-            onOpenEmail={(id) => void openEmail(id)}
-            onCloseEmail={closeEmail}
-            onToggleRead={(id, current) => void toggleRead(id, current)}
-            onRefresh={() => void refresh()}
-          />
-        ) : null}
-        {activeView === 'aliases' ? (
-          <AliasesView
-            aliases={aliases}
-            primaryDomain={primaryDomain}
-            createOpen={createOpen}
-            busy={busy}
-            onOpenCreate={() => setCreateOpen(true)}
-            onCloseCreate={() => setCreateOpen(false)}
-            onCreate={createAlias}
-            onToggle={toggleAlias}
-          />
-        ) : null}
-        {activeView === 'files' ? <FilesView files={files} aliases={aliases} /> : null}
-      </Layout>
+      <Suspense fallback={<main className="boot-screen"><div className="brand-loader"><span className="spinner" />正在加载邮箱</div></main>}>
+        <InboxWorkbench
+          userLabel={bootstrap?.local ? '本机用户' : bootstrap?.externalOnly ? bootstrap.adminEmail : '管理员'}
+          aiEnabled={edition !== 'local'}
+          appName={appName}
+          primaryDomain={primaryDomain}
+          activeView={activeView}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          aliases={aliases}
+          accounts={accounts}
+          revision={emails}
+          unread={stats.unreadCount}
+          refreshing={refreshing}
+          onNavigate={navigate}
+          onConnectMailbox={() => { navigate('aliases'); setConnectOpen(true); }}
+          onLogout={() => void logout()}
+          onReload={loadData}
+          onRefresh={refresh}
+          onError={showError}
+          onNotice={(message) => setToast({ type: 'success', message })}
+        >
+          {activeView === 'overview' ? (
+            <OverviewView
+              stats={stats}
+              emails={emails}
+              aliases={aliases}
+              onNavigate={navigate}
+              onCreateAlias={bootstrap?.externalOnly ? undefined : openCreate}
+              onOpenEmail={openEmail}
+            />
+          ) : null}
+          {activeView === 'aliases' ? (
+            <div className="page">
+              <ConnectedMailboxes local={bootstrap?.local} accounts={accounts} results={refreshResults} refreshing={refreshing}
+                oauthProviders={bootstrap?.oauthProviders ?? []} connectOpen={connectOpen} onConnectOpen={setConnectOpen}
+                connectionResult={connectionResult} onDismissResult={() => setConnectionResult(null)}
+                onRefresh={refresh} onSyncConnection={syncConnection} onOpenInbox={() => { setConnectionResult(null); navigate('inbox'); }}
+                onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
+              {!bootstrap?.externalOnly && <AliasesView
+                aliases={aliases}
+                primaryDomain={primaryDomain}
+                createOpen={createOpen}
+                busy={busy}
+                onOpenCreate={() => setCreateOpen(true)}
+                onCloseCreate={() => setCreateOpen(false)}
+                onCreate={createAlias}
+                onToggle={toggleAlias}
+              />}
+            </div>
+          ) : null}
+          {activeView === 'files' ? <FilesView files={files} sources={mailSources} /> : null}
+        </InboxWorkbench>
+      </Suspense>
 
       {toast ? (
         <div className={`toast toast--${toast.type}`} role="status">

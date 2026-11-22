@@ -1,7 +1,11 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "agentic-mailbox",
-	"main": "src/worker/index.ts",
+	"main": "src/worker/entry.ts",
+  "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
+  "durable_objects": { "bindings": [{ "name": "MEMBERS", "class_name": "MemberMailbox" }] },
+  "migrations": [{ "tag": "member-mailboxes-v1", "new_sqlite_classes": ["MemberMailbox"] }],
+  "ratelimits": [{ "name": "MEMBER_AUTH_LIMIT", "namespace_id": "1009", "simple": { "limit": 12, "period": 60 } }],
 	"compatibility_date": "2026-07-19",
 	"compatibility_flags": [
 		"nodejs_compat"
@@ -14,6 +18,8 @@
 		"not_found_handling": "single-page-application",
 		"run_worker_first": true
 	},
+	"ai": { "binding": "AI" },
+	"send_email": [{ "name": "EMAIL" }],
 	"r2_buckets": [
 		{
 			"binding": "ATTACHMENTS",
@@ -22,6 +28,7 @@
 	],
 	"vars": {
 		"APP_NAME": "Agentic Mailbox",
+		"MAIL_OAUTH_ORIGIN": "https://mailbox.timmyagentic.si",
 		"PRIMARY_DOMAIN": "emomo.net",
 		"ADMIN_EMAIL": "qianbi3956001@gmail.com",
 		"FORWARD_TO": "qianbi3956001@gmail.com"
@@ -34,7 +41,8 @@
 	],
 	"observability": {
 		"enabled": true,
-		"head_sampling_rate": 1
+		"head_sampling_rate": 1,
+		"logs": { "invocation_logs": false }
 	},
 	"d1_databases": [
 		{

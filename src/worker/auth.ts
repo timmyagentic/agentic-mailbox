@@ -5,11 +5,10 @@ const LEGACY_SESSION_COOKIE = 'mailbox_vault_session';
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
 
 type SignedSession = {
-  version: 1;
   email: string;
   issuedAt: number;
   expiresAt: number;
-};
+} & ({ version: 1 } | { version: 2; certificateFingerprint: string });
 
 function encodeBase64Url(value: Uint8Array): string {
   let binary = '';
@@ -77,13 +76,38 @@ export async function passwordsMatch(candidate: string, expected: string): Promi
   return difference === 0;
 }
 
-export async function createSessionToken(email: string, secret: string, now = Date.now()): Promise<string> {
-  const payload: SignedSession = {
-    version: 1,
-    email,
-    issuedAt: Math.floor(now / 1000),
-    expiresAt: Math.floor(now / 1000) + SESSION_TTL_SECONDS,
-  };
+function normalizeFingerprint(value: string): string | undefined {
+  const normalized = value.replaceAll(':', '').toLowerCase();
+  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : undefined;
+}
+
+export function verifiedClientFingerprint(request: Request, allowlist?: string): string | undefined {
+  if (!allowlist || new URL(request.url).protocol !== 'https:') return undefined;
+  const certificate = (request.cf as IncomingRequestCfProperties | undefined)?.tlsClientAuth;
+  if (
+    certificate?.certPresented !== '1' ||
+    certificate.certVerified !== 'SUCCESS' ||
+    certificate.certRevoked !== '0'
+  ) return undefined;
+
+  const fingerprint = normalizeFingerprint(certificate.certFingerprintSHA256 ?? '');
+  return fingerprint && allowlist.split(/[\s,]+/).some((entry) => normalizeFingerprint(entry) === fingerprint)
+    ? fingerprint
+    : undefined;
+}
+
+export async function createSessionToken(
+  email: string,
+  secret: string,
+  now = Date.now(),
+  certificateFingerprint?: string,
+): Promise<string> {
+  const issuedAt = Math.floor(now / 1000);
+  const window = { email, issuedAt, expiresAt: issuedAt + SESSION_TTL_SECONDS };
+  // Older Workers reject version 2, so a rollback cannot remove the device binding.
+  const payload: SignedSession = certificateFingerprint
+    ? { ...window, version: 2, certificateFingerprint }
+    : { ...window, version: 1 };
   const encodedPayload = encodeBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
   return `${encodedPayload}.${await sign(encodedPayload, secret)}`;
 }
@@ -108,7 +132,8 @@ export async function verifySessionToken(
     const payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as SignedSession;
     const nowSeconds = Math.floor(now / 1000);
     if (
-      payload.version !== 1 ||
+      (payload.version !== 1 && payload.version !== 2) ||
+      (payload.version === 2 && !/^[a-f0-9]{64}$/.test(payload.certificateFingerprint)) ||
       payload.email !== expectedEmail ||
       payload.issuedAt > nowSeconds + 60 ||
       payload.expiresAt <= nowSeconds
@@ -121,7 +146,7 @@ export async function verifySessionToken(
   }
 }
 
-export function readCookie(request: Request, name: string): string | null {
+function readCookie(request: Request, name: string): string | null {
   const cookie = request.headers.get('cookie') ?? '';
   for (const part of cookie.split(';')) {
     const [key, ...rest] = part.trim().split('=');
@@ -132,17 +157,23 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
+export function readSessionCookie(request: Request): string | null {
+  return readCookie(request, SESSION_COOKIE) ?? readCookie(request, LEGACY_SESSION_COOKIE);
+}
+
 export async function getSession(
   request: Request,
   email: string,
   secret: string,
+  certificateAllowlist?: string,
 ): Promise<SessionPayload> {
-  const token = readCookie(request, SESSION_COOKIE) ?? readCookie(request, LEGACY_SESSION_COOKIE);
+  const token = readSessionCookie(request);
   const session = token ? await verifySessionToken(token, email, secret) : null;
-  return {
-    authenticated: Boolean(session),
-    user: session ? { email: session.email } : null,
-  };
+  const authenticated = Boolean(session && (
+    session.version === 1 ||
+    session.certificateFingerprint === verifiedClientFingerprint(request, certificateAllowlist)
+  ));
+  return { authenticated, user: authenticated ? { email } : null };
 }
 
 export function sessionCookie(token: string, requestUrl: string): string {

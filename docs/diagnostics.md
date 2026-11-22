@@ -21,6 +21,7 @@ All application records include `timestamp`, `level`, and `event`.
 | Event | Meaning and useful fields |
 | --- | --- |
 | `http_request` | API completion or static request failure: generated `requestId`, route template, method, status, optional application error code, `durationMs`. Includes expected 4xx failures and returned health-check 503 responses. |
+| `oauth_sync_failed` | Connected-mailbox sync failed. Includes provider, upstream status when known and a recognized error reason. |
 | `email_rejected` | Recipient has an unmanaged domain or is not an active managed alias. Includes reason, `processingId`, and duration. |
 | `email_duplicate` | An existing Message-ID for the same alias was skipped. Includes internal alias ID and `processingId`; no external Message-ID. |
 | `email_ingested` | Mail and attachments are stored. Includes internal email/alias IDs, attachment count, raw size, duration, and forwarding outcome (`disabled`, `succeeded`, or `failed`). |
@@ -32,7 +33,7 @@ All application records include `timestamp`, `level`, and `event`.
 
 Application logs contain only operational metadata. They do not include passwords, session tokens, cookies, request/response bodies, query strings, literal resource paths, email addresses, subjects, external Message-IDs, message text, verification codes, attachment names, or raw exception text. HTTP request IDs are generated locally instead of trusting an incoming header. Unhandled ingestion exceptions are replaced with a generic error containing the processing ID, so provider/MIME errors do not leak into automatic exception logs.
 
-Cloudflare's own invocation records are separate and may include request URLs and other platform metadata. This change does not alter the account's logging settings or retention. Review that separate platform configuration before sharing raw log exports. Share only the relevant operation's safe fields for troubleshooting.
+The Worker disables automatic invocation logs because OAuth callback URLs contain one-time authorization codes. The custom `http_request` and email processing events remain enabled and use route names without query strings. Share only the relevant operation's safe fields for troubleshooting.
 
 ## Verification
 

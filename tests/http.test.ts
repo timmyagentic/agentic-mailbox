@@ -62,3 +62,93 @@ describe('request diagnostics', () => {
     expect(JSON.stringify(logs())).not.toContain(env.ADMIN_EMAIL);
   });
 });
+
+const allowedFingerprint = 'a2'.repeat(32);
+const otherFingerprint = 'b6'.repeat(32);
+const certificateEnv = { ...env, ADMIN_CERT_FINGERPRINTS: `${allowedFingerprint}, ${otherFingerprint}` };
+const verifiedCertificate = {
+  certPresented: '1', certVerified: 'SUCCESS', certRevoked: '0',
+  certFingerprintSHA256: allowedFingerprint.match(/../g)?.join(':').toUpperCase(),
+};
+
+function certificateRequest(
+  path: string,
+  init: RequestInit,
+  certificate?: { certPresented: string; certVerified: string; certRevoked: string; certFingerprintSHA256?: string },
+  base = 'https://vault.example',
+) {
+  const request = new Request(base + path, init);
+  if (certificate) Object.defineProperty(request, 'cf', { value: { tlsClientAuth: certificate } });
+  return request;
+}
+
+describe('administrator certificate login', () => {
+  const loginPath = '/api/session/certificate';
+  const jsonLogin = {
+    method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://vault.example' }, body: '{}',
+  };
+
+  it('issues a secure session and binds protected requests to the original device certificate', async () => {
+    const login = await worker.fetch(certificateRequest(loginPath, jsonLogin, verifiedCertificate), certificateEnv);
+    expect(login.status).toBe(200);
+    const setCookie = login.headers.get('set-cookie') ?? '';
+    expect(setCookie).toMatch(/HttpOnly; SameSite=Strict; Max-Age=86400; Secure/);
+    const headers = { cookie: setCookie.split(';')[0] };
+
+    const protectedPath = '/api/aliases';
+    const dataEnv = {
+      ...certificateEnv,
+      DB: { prepare: () => ({ bind: () => ({ all: async () => ({ results: [] }) }) }) },
+    } as unknown as Env;
+    expect((await worker.fetch(certificateRequest(protectedPath, { headers }, verifiedCertificate), dataEnv)).status).toBe(200);
+    expect((await worker.fetch(certificateRequest(protectedPath, { headers }), dataEnv)).status).toBe(401);
+    expect((await worker.fetch(certificateRequest(protectedPath, { headers }, {
+      ...verifiedCertificate, certFingerprintSHA256: otherFingerprint,
+    }), dataEnv)).status).toBe(401);
+    expect((await worker.fetch(certificateRequest(protectedPath, { headers }, {
+      ...verifiedCertificate, certRevoked: '1',
+    }), dataEnv)).status).toBe(401);
+    expect((await worker.fetch(certificateRequest(protectedPath, { headers }, verifiedCertificate), {
+      ...dataEnv, ADMIN_CERT_FINGERPRINTS: otherFingerprint,
+    })).status).toBe(401);
+    expect(JSON.stringify(logs())).not.toContain(allowedFingerprint);
+  });
+
+  it('rejects absent, revoked, unverified and unregistered device certificates and ignores forged headers', async () => {
+    for (const certificate of [
+      undefined, { ...verifiedCertificate, certPresented: '0' },
+      { ...verifiedCertificate, certVerified: 'FAILED' }, { ...verifiedCertificate, certRevoked: '1' },
+      { ...verifiedCertificate, certFingerprintSHA256: 'c3'.repeat(32) },
+    ]) {
+      const response = await worker.fetch(certificateRequest(loginPath, jsonLogin, certificate), certificateEnv);
+      expect(response.status).toBe(403);
+      expect(response.headers.has('set-cookie')).toBe(false);
+    }
+    const fakeHeaders = { ...jsonLogin.headers, 'cf-cert-verified': 'SUCCESS', 'client-cert': allowedFingerprint };
+    const spoof = await worker.fetch(certificateRequest(loginPath, { ...jsonLogin, headers: fakeHeaders }), certificateEnv);
+    expect(spoof.status).toBe(403);
+    expect(spoof.headers.has('set-cookie')).toBe(false);
+  });
+
+  it('enforces same-origin JSON on HTTPS and leaves the password session usable', async () => {
+    const wrongOrigin = certificateRequest(loginPath, {
+      ...jsonLogin, headers: { ...jsonLogin.headers, origin: 'https://other.example' },
+    }, verifiedCertificate);
+    expect((await worker.fetch(wrongOrigin, certificateEnv)).status).toBe(403);
+    const notJson = certificateRequest(loginPath, { ...jsonLogin, headers: {} }, verifiedCertificate);
+    expect((await worker.fetch(notJson, certificateEnv)).status).toBe(415);
+    const http = certificateRequest(loginPath, {
+      ...jsonLogin, headers: { ...jsonLogin.headers, origin: 'http://vault.example' },
+    }, verifiedCertificate, 'http://vault.example');
+    expect((await worker.fetch(http, certificateEnv)).status).toBe(400);
+    expect((await worker.fetch(certificateRequest(loginPath, jsonLogin, verifiedCertificate), env)).status).toBe(503);
+
+    const passwordLogin = await worker.fetch(certificateRequest('/api/session', {
+      ...jsonLogin, body: JSON.stringify({ password: env.ADMIN_PASSWORD }),
+    }), certificateEnv);
+    expect(passwordLogin.status).toBe(200);
+    const cookie = passwordLogin.headers.get('set-cookie')?.split(';')[0] ?? '';
+    const passwordSession = await worker.fetch(certificateRequest('/api/session', { headers: { cookie } }), certificateEnv);
+    await expect(passwordSession.json()).resolves.toMatchObject({ authenticated: true });
+  });
+});

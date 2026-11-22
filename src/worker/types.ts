@@ -1,13 +1,28 @@
+import type { MailBucket, MailDatabase } from './storage-types';
+
 export interface Env {
-  DB: D1Database;
-  ATTACHMENTS: R2Bucket;
+  MEMBERS?: DurableObjectNamespace;
+  MEMBER_AUTH_LIMIT?: RateLimit;
+  LOCAL_MODE?: string;
+  EXTERNAL_ONLY?: boolean;
+  DB: MailDatabase;
+  ATTACHMENTS: MailBucket;
   ASSETS: Fetcher;
   APP_NAME: string;
   PRIMARY_DOMAIN: string;
   ADMIN_EMAIL: string;
   FORWARD_TO?: string;
   ADMIN_PASSWORD: string;
+  ADMIN_CERT_FINGERPRINTS?: string;
   SESSION_SECRET: string;
+  MAIL_ACCOUNT_KEY?: string;
+  MAIL_OAUTH_ORIGIN?: string;
+  GMAIL_CLIENT_ID?: string;
+  GMAIL_CLIENT_SECRET?: string;
+  OUTLOOK_CLIENT_ID?: string;
+  OUTLOOK_CLIENT_SECRET?: string;
+  EMAIL?: SendEmail;
+  AI?: Ai;
 }
 
 export type EmailWorkerMessage = ForwardableEmailMessage;
@@ -39,6 +54,11 @@ export type EmailRow = {
   subject: string;
   preview: string;
   body_text: string;
+  body_html: string;
+  headers_json: string;
+  thread_key: string;
+  outgoing: number;
+  starred: number;
   received_at: string;
   sent_at: string | null;
   raw_size: number;

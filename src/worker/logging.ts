@@ -5,6 +5,7 @@ export type IngestStage = 'recipient' | 'alias_lookup' | 'parse' | 'deduplicate'
 
 type DiagnosticEvent =
   | { event: 'http_request'; requestId: string; route: string; method: string; status: number; code?: string; durationMs: number }
+  | { event: 'oauth_sync_failed'; provider: 'gmail' | 'outlook'; status?: number; reason?: string }
   | { event: 'email_rejected'; processingId: string; reason: 'unmanaged_domain' | 'unregistered_or_disabled'; durationMs: number }
   | { event: 'email_duplicate'; processingId: string; aliasId: string; durationMs: number }
   | { event: 'email_ingested'; processingId: string; emailId: string; aliasId: string; attachmentCount: number; rawSize: number; forwarding: 'disabled' | 'succeeded' | 'failed'; durationMs: number }
@@ -22,9 +23,14 @@ export function elapsedMs(started: number): number {
 
 // Templates keep search text and arbitrary resource identifiers out of logs.
 export function requestRoute(pathname: string): string {
-  if (['/api/health', '/api/session', '/api/bootstrap', '/api/aliases', '/api/emails', '/api/files'].includes(pathname)) {
+  if (['/api/health', '/api/session', '/api/session/certificate', '/api/bootstrap', '/api/aliases', '/api/mail-accounts', '/api/emails', '/api/files', '/api/conversations', '/api/drafts'].includes(pathname)) {
     return pathname;
   }
+  if (/^\/api\/oauth\/(?:gmail|outlook)\/(?:start|callback|finish)$/.test(pathname)) return pathname;
+  if (/^\/api\/conversations\/[^/]+$/.test(pathname)) return '/api/conversations/:id';
+  if (/^\/api\/drafts\/[^/]+(?:\/(?:send|suggest|files)(?:\/[^/]+)?)?$/.test(pathname)) return '/api/drafts/:id';
+  if (/^\/api\/emails\/[^/]+\/placement$/.test(pathname)) return '/api/emails/:id/placement';
+  if (/^\/api\/mail-accounts\/[^/]+\/refresh$/.test(pathname)) return '/api/mail-accounts/:id/refresh';
   if (/^\/api\/aliases\/[^/]+$/.test(pathname)) return '/api/aliases/:id';
   if (/^\/api\/emails\/[^/]+$/.test(pathname)) return '/api/emails/:id';
   if (/^\/api\/attachments\/[^/]+\/download$/.test(pathname)) return '/api/attachments/:id/download';

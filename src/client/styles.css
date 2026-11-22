@@ -2318,3 +2318,226 @@ textarea:focus-visible {
     backdrop-filter: none;
   }
 }
+
+.mailbox-connect-step {
+  display: grid;
+  gap: 18px;
+  padding: 20px 24px 24px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mailbox-connect-step:focus {
+  outline: none;
+}
+
+.mailbox-connect-note {
+  color: var(--muted);
+}
+
+.mailbox-connect-providers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.mailbox-connect-providers li + li {
+  border-top: 1px solid var(--line);
+}
+
+.mailbox-connect-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 59px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+}
+
+button.mailbox-connect-option {
+  cursor: pointer;
+}
+
+button.mailbox-connect-option:hover {
+  background: var(--surface-soft);
+}
+
+.mailbox-connect-providers button:focus-visible {
+  outline-offset: -3px;
+}
+
+.mailbox-connect-option > span:first-child {
+  flex: 1;
+}
+
+.mailbox-connect-providers strong,
+.mailbox-connect-providers small {
+  display: block;
+}
+
+.mailbox-connect-providers small,
+.mailbox-connect-providers svg,
+.mailbox-connect-pending {
+  color: var(--muted);
+}
+
+.mailbox-connect-pending {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mailbox-connect-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  min-height: 32px;
+  padding: 2px 6px;
+  margin-left: -6px;
+  color: var(--teal-strong);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mailbox-connect-back:hover {
+  background: var(--surface-soft);
+}
+
+.mailbox-connect-body {
+  display: grid;
+  gap: 16px;
+}
+
+.mailbox-connect-body p a {
+  color: var(--teal-strong);
+  text-underline-offset: 3px;
+}
+
+.mailbox-connect-body a > svg {
+  display: inline;
+  vertical-align: text-bottom;
+}
+
+.mailbox-connect-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mailbox-connect-error {
+  color: var(--danger);
+}
+
+.mailbox-connection-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.mailbox-connection-result__copy {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.mailbox-connection-result__copy p {
+  margin-top: 2px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 420px) {
+  .mailbox-connect-step {
+    padding: 14px 16px 18px;
+  }
+}
+
+.connected-mailboxes {
+  display: grid;
+  gap: 8px;
+}
+
+.connected-mailboxes__header,
+.connected-mailboxes__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.connected-mailboxes__header {
+  justify-content: space-between;
+}
+
+.connected-mailboxes__header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.connected-mailboxes__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.connected-mailboxes__list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.connected-mailboxes__list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.connected-mailboxes__identity strong {
+  overflow-wrap: anywhere;
+}
+
+.connected-mailboxes__status,
+.connected-mailboxes__empty {
+  font-size: 13px;
+  margin: 0;
+}
+
+.connected-mailboxes__status small {
+  display: block;
+}
+
+@media (max-width: 620px) {
+  .connected-mailboxes__list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .connected-mailboxes__status {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+}
+
+.login-certificate {
+  margin-top: 10px;
+}
+
+.login-mode-actions { display: flex; gap: 10px; margin-top: 12px; }
+.login-form label input { display: block; width: 100%; margin-top: 6px; padding: 10px; }
+
+.login-local-download { display: inline-block; margin-top: 16px; color: var(--teal-strong); }

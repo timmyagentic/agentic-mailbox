@@ -1,3 +1,4 @@
+import { routeMember } from './members';
 import { handleApi } from './api';
 import { apiError, HttpError, withSecurityHeaders } from './http';
 import { ingestEmail } from './mail';
@@ -6,8 +7,22 @@ import type { EmailWorkerMessage, Env } from './types';
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (env.LOCAL_MODE === '1' && !['127.0.0.1', 'localhost'].includes(url.hostname)) {
+    throw new HttpError(403, 'invalid_local_host', '请使用本机地址。');
+  }
+  if (env.MEMBERS && ['GET', 'HEAD'].includes(request.method) && url.pathname === '/downloads/mailbox-vault-mac-arm64.zip') {
+    return Response.redirect(new URL('/downloads/agentic-mailbox-mac-arm64.zip', url), 308);
+  }
+  if (env.MEMBERS && url.pathname === '/downloads/agentic-mailbox-mac-arm64.zip' && ['GET', 'HEAD'].includes(request.method)) {
+    const archive = await env.ATTACHMENTS.get('releases/agentic-mailbox-mac-arm64.zip');
+    if (!archive) throw new HttpError(404, 'download_missing', '本地版安装包暂不可用。');
+    return new Response(request.method === 'HEAD' ? null : archive.body, { headers: {
+      'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="agentic-mailbox-mac-arm64.zip"',
+      'Content-Length': String(archive.size), 'ETag': archive.httpEtag,
+    } });
+  }
   if (url.pathname.startsWith('/api/')) {
-    return handleApi(request, env);
+    return await routeMember(request, env) ?? handleApi(request, env);
   }
 
   if (request.method !== 'GET' && request.method !== 'HEAD') {
