@@ -123,8 +123,15 @@ def parser():
     mode.add_argument("--username")
     mode.add_argument("--admin", action="store_true")
     auth.add_argument("--password-stdin", action="store_true")
-    for name in ("logout", "status", "accounts", "drafts"):
+    for name in ("profiles", "logout", "status", "accounts", "drafts"):
         commands.add_parser(name)
+    commands.add_parser("aliases", help="Find addresses in this instance").add_argument("--query", default="")
+    create = commands.add_parser("create-alias", help="Create a hosted domain address")
+    create.add_argument("local_part")
+    create.add_argument("--label", default="")
+    update = commands.add_parser("set-alias-status", help="Enable or disable a hosted address")
+    update.add_argument("id")
+    update.add_argument("status", choices=("active", "disabled"))
     inbox = commands.add_parser("list")
     inbox.add_argument("--folder", choices=("inbox", "sent", "archive", "trash"), default="inbox")
     inbox.add_argument("--query")
@@ -148,6 +155,16 @@ def send_command(args, api):
     if command == "accounts":
         data = api("/api/bootstrap")
         return {"accounts": data["mailAccounts"], "aliases": api("/api/aliases?limit=100")["aliases"]}
+    if command == "aliases":
+        return api("/api/aliases?" + urllib.parse.urlencode({"q": args.query, "limit": 100}))
+    if command == "create-alias":
+        if not args.local_part.strip():
+            raise MailboxError("Supply the requested local part.")
+        return api("/api/aliases", data={"localPart": args.local_part, "label": args.label})
+    if command == "set-alias-status":
+        if args.id in ("", ".", ".."):
+            raise MailboxError("A mailbox alias ID is required.")
+        return api("/api/aliases/" + urllib.parse.quote(args.id, safe=""), method="PATCH", data={"status": args.status})
     if command == "list":
         query = {"folder": args.folder, "page": max(1, args.page)}
         if args.query:
@@ -208,7 +225,12 @@ def authenticated_api(profile="default"):
 def main():
     args = parser().parse_args()
     try:
-        if args.command == "login":
+        if args.command == "profiles":
+            directory = SESSION.parent / "profiles"
+            profiles = ["default"] if SESSION.is_file() else []
+            profiles.extend(sorted(path.stem for path in directory.glob("*.json") if path.is_file()))
+            result = {"profiles": profiles}
+        elif args.command == "login":
             result = login(args)
         elif args.command == "logout":
             session_file(args.profile).unlink(missing_ok=True)
