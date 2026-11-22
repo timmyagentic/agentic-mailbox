@@ -16,7 +16,7 @@ const copy = (from, to) => {
 };
 try {
   for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
-    '打开本地邮箱.command', '配置本机 OAuth.command', 'LICENSE.agentic-inbox', '.wrangler/local-worker']) {
+    '打开本地邮箱.command', '配置本机 OAuth.command', 'LICENSE', 'LICENSE.agentic-inbox', '.wrangler/local-worker']) {
     copy(join(root, item), join(app, item));
   }
   copy(join(root, 'local/README.md'), join(app, '使用说明.md'));
