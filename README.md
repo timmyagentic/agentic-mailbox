@@ -179,3 +179,8 @@ See [Operational diagnostics](docs/diagnostics.md) for event fields, error IDs, 
 - [D1 Workers binding API](https://developers.cloudflare.com/d1/worker-api/)
 - [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/)
 - [Workers static assets](https://developers.cloudflare.com/workers/static-assets/binding/)
+
+## License
+
+Agentic Mailbox's original code is available under the [MIT License](LICENSE).
+The [upstream Agentic Inbox notice](LICENSE.agentic-inbox) and licenses for other third-party components apply to their respective materials.
