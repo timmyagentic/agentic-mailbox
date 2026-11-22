@@ -42,6 +42,7 @@ const EMPTY_STATS: DashboardStats = {
 type Toast = { type: 'success' | 'error'; message: string } | null;
 
 export default function App() {
+  const [chatGPTLogin, setChatGPTLogin] = useState(false);
   const [edition, setEdition] = useState<'hosted' | 'local'>();
   const [checkingSession, setCheckingSession] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<OAuthProvider | null>(null);
@@ -71,6 +72,16 @@ export default function App() {
     }
     setToast({ type: 'error', message });
   }, []);
+
+  const startChatGPT = async (intent: 'login' | 'link') => {
+    try {
+      window.location.assign((await mailboxApi.startChatGPT(intent)).url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法打开 ChatGPT 授权页。';
+      setLoginError(message);
+      setToast({ type: 'error', message });
+    }
+  };
 
   const loadData = useCallback(async () => {
     const [nextBootstrap, aliasPayload, emailPayload, filePayload] = await Promise.all([
@@ -118,6 +129,19 @@ export default function App() {
       .then(async (session) => {
         if (!active) return;
         setEdition(session.edition);
+        setChatGPTLogin(Boolean(session.chatGPTLogin));
+        const chatCallback = new URLSearchParams(window.location.hash.slice(1));
+        if (session.edition === 'local' && chatCallback.get('chatgpt') === 'return') {
+          window.history.replaceState(null, '', window.location.pathname);
+          try {
+            session = await mailboxApi.finishChatGPT(chatCallback);
+            setChatGPTLogin(true);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'ChatGPT 登录失败。';
+            setLoginError(message);
+            setToast({ type: 'error', message });
+          }
+        }
         const unlock = new URLSearchParams(window.location.hash.slice(1)).get('localUnlock');
         if (session.edition === 'local' && unlock) {
           window.history.replaceState(null, '', window.location.pathname);
@@ -324,7 +348,7 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return <LoginView edition={edition} error={loginError} busy={loginBusy} onLogin={login} onCertificateLogin={() => login()} />;
+    return <LoginView onChatGPTLogin={chatGPTLogin ? () => void startChatGPT('login') : undefined} edition={edition} error={loginError} busy={loginBusy} onLogin={login} onCertificateLogin={() => login()} />;
   }
 
   const stats = bootstrap?.stats ?? EMPTY_STATS;
@@ -343,7 +367,7 @@ export default function App() {
       <Suspense fallback={<main className="boot-screen"><div className="brand-loader"><span className="spinner" />正在加载邮箱</div></main>}>
         <InboxWorkbench
           userLabel={bootstrap?.local ? '本机用户' : bootstrap?.externalOnly ? bootstrap.adminEmail : '管理员'}
-          aiEnabled={edition !== 'local'}
+          aiEnabled={edition !== 'local' || Boolean(bootstrap?.chatGPT?.planEnabled)}
           appName={appName}
           primaryDomain={primaryDomain}
           activeView={activeView}
@@ -374,6 +398,20 @@ export default function App() {
           ) : null}
           {activeView === 'aliases' ? (
             <div className="page">
+              {bootstrap?.chatGPT && <section className="connected-mailboxes">
+                <h2>ChatGPT</h2>
+                <p>{bootstrap.chatGPT.linked ? (bootstrap.chatGPT.email || '已绑定 ChatGPT 账号') : '绑定后可用 ChatGPT 登录这台 Mac 上的邮箱。'}</p>
+                <p>{bootstrap.chatGPT.planEnabled ? '套餐起草已开启。' : '可在 OpenAI 授权页选择启用套餐起草。'} 起草时，指令、草稿和相关邮件文本会发送给 OpenAI。</p>
+                <button className="button button--primary" onClick={() => void startChatGPT('link')}>Continue with ChatGPT</button>
+                {bootstrap.chatGPT.linked && <button className="button button--secondary" onClick={async () => {
+                  try {
+                    const { revoked } = await mailboxApi.disconnectChatGPT();
+                    setChatGPTLogin(false);
+                    await loadData();
+                    setToast({ type: 'success', message: revoked ? '已断开 ChatGPT。' : '已清除本机授权。可在 ChatGPT 设置中撤销远端授权。' });
+                  } catch (error) { showError(error); }
+                }}>断开 ChatGPT</button>}
+              </section>}
               <ConnectedMailboxes local={bootstrap?.local} accounts={accounts} results={refreshResults} refreshing={refreshing}
                 oauthProviders={bootstrap?.oauthProviders ?? []} connectOpen={connectOpen} onConnectOpen={setConnectOpen}
                 connectionResult={connectionResult} onDismissResult={() => setConnectionResult(null)}

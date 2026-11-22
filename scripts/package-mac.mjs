@@ -15,7 +15,7 @@ const copy = (from, to) => {
   cpSync(from, to, { recursive: true, dereference: true, filter: path => !path.endsWith('.map') && !path.endsWith('/node_modules') });
 };
 try {
-  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
+  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/chatgpt-local.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
     '打开本地邮箱.command', '配置本机 OAuth.command', 'LICENSE', 'LICENSE.agentic-inbox', '.wrangler/local-worker']) {
     copy(join(root, item), join(app, item));
   }
@@ -33,7 +33,7 @@ try {
     copy(source, join(app, relative(root, source)));
     for (const dependency of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies })) include(dependency, source);
   }
-  include('miniflare', root);
+  for (const name of ['miniflare', 'jose', 'openai']) include(name, root);
   // npm installs two copies of the identical workerd executable on macOS.
   const workerdBin = join(app, 'node_modules/workerd/bin/workerd');
   rmSync(workerdBin);

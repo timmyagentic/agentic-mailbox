@@ -1,0 +1,20 @@
+{
+  "name": "agentic-mailbox-tools",
+  "interface": {
+    "displayName": "Agentic Mailbox"
+  },
+  "plugins": [
+    {
+      "name": "agentic-mailbox",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agentic-mailbox"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

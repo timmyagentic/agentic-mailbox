@@ -4,6 +4,7 @@ export interface Env {
   MEMBERS?: DurableObjectNamespace;
   MEMBER_AUTH_LIMIT?: RateLimit;
   LOCAL_MODE?: string;
+  CHATGPT?: Fetcher;
   EXTERNAL_ONLY?: boolean;
   DB: MailDatabase;
   ATTACHMENTS: MailBucket;

@@ -17,9 +17,10 @@ type LoginViewProps = {
   edition?: 'local' | 'hosted';
   onLogin: (password: string, member?: { username: string; register: boolean }) => Promise<void>;
   onCertificateLogin: () => Promise<void>;
+  onChatGPTLogin?: () => void;
 };
 
-export function LoginView({ edition, error, busy, onLogin, onCertificateLogin }: LoginViewProps) {
+export function LoginView({ edition, error, busy, onLogin, onCertificateLogin, onChatGPTLogin }: LoginViewProps) {
   const [mode, setMode] = useState<'member' | 'register' | 'admin'>(edition === 'hosted' ? 'member' : 'admin');
   const [username, setUsername] = useState('');
   const member = mode !== 'admin';
@@ -130,6 +131,8 @@ export function LoginView({ edition, error, busy, onLogin, onCertificateLogin }:
             <button className="button button--secondary" type="button" key={item} onClick={() => { setMode(item); setPassword(''); }}>
               {{ member: '个人登录', register: '注册账号', admin: '管理员登录' }[item]}
             </button>)}</div>}
+          {edition === 'local' && onChatGPTLogin && <button className="button button--secondary button--full"
+            type="button" disabled={busy} onClick={onChatGPTLogin}>Continue with ChatGPT</button>}
           {!member && edition !== 'local' && <button
             className="button button--secondary button--full login-certificate"
             type="button"

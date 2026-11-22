@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agentic-mailbox",
+  "version": "0.1.1",
+  "description": "Search mail, refresh accounts, manage domain aliases and prepare or send drafts in an authorized Agentic Mailbox instance.",
+  "author": {
+    "name": "Agentic Mailbox contributors"
+  },
+  "license": "MIT",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Agentic Mailbox",
+        "shortDescription": "Manage your connected inboxes",
+        "category": "Productivity",
+        "developerName": "Agentic Mailbox contributors",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": "Search my connected inboxes and prepare a reply draft."
+      }
+    }
+  }
+}

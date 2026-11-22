@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""JSON command line client for the Agentic Mailbox API."""
+
+import argparse
+import getpass
+import http.cookies
+import json
+import os
+import re
+from pathlib import Path
+import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+
+COOKIE_NAME = "agentic_mailbox_session"
+SESSION = Path(os.environ.get("AGENTIC_MAILBOX_SESSION_FILE") or (
+    Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    / "agentic-mailbox" / "session.json"
+)).expanduser()
+
+
+class MailboxError(Exception):
+    pass
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def origin_for(value):
+    url = urllib.parse.urlsplit(value)
+    local = url.hostname in ("127.0.0.1", "localhost", "::1")
+    if (not url.hostname or url.username is not None or url.password is not None
+            or url.path not in ("", "/") or url.query or url.fragment
+            or not (url.scheme == "https" or (url.scheme == "http" and local))):
+        raise MailboxError("Use an HTTPS origin or a loopback HTTP origin.")
+    hostname = f"[{url.hostname}]" if ":" in url.hostname else url.hostname
+    default_port = 443 if url.scheme == "https" else 80
+    port = f":{url.port}" if url.port is not None and url.port != default_port else ""
+    return f"{url.scheme}://{hostname}{port}"
+
+
+def request(origin, path, *, data=None, method=None, cookie=None):
+    headers = {"Accept": "application/json", "Origin": origin}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    if cookie:
+        headers["Cookie"] = cookie
+    req = urllib.request.Request(
+        origin + path,
+        None if data is None else json.dumps(data).encode(),
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.build_opener(NoRedirect).open(req, timeout=60) as response:
+            return json.load(response), response.headers
+    except urllib.error.HTTPError as error:
+        try:
+            payload = json.loads(error.read(16384)).get("error", {})
+        except (ValueError, AttributeError):
+            payload = {}
+        if error.code == 401 and cookie:
+            raise MailboxError("Session expired. Sign in again with the login command.") from None
+        if not isinstance(payload, dict):
+            payload = {}
+        detail = payload.get("message", "The server could not complete the request.")
+        raise MailboxError(f"HTTP {error.code}: {detail}") from None
+    except (OSError, ValueError):
+        raise MailboxError("Cannot read the mailbox response. Check the instance and the last operation's result before retrying.") from None
+
+
+def session_file(profile):
+    if profile == "default":
+        return SESSION
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}", profile):
+        raise MailboxError("Use a profile name of 1 to 40 letters, digits, underscores or hyphens.")
+    return SESSION.parent / "profiles" / (profile + ".json")
+
+
+def save_session(origin, cookie, profile):
+    target = session_file(profile)
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=target.parent, delete=False) as file:
+            temporary = Path(file.name)
+            json.dump({"origin": origin, "cookie": cookie}, file)
+        temporary.replace(target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def login(args):
+    origin = origin_for(args.origin)
+    password = sys.stdin.readline().rstrip("\r\n") if args.password_stdin else getpass.getpass("Mailbox password: ")
+    if not password:
+        raise MailboxError("A mailbox password is required.")
+    data = {"password": password}
+    if not args.admin:
+        data["username"] = args.username
+    payload, headers = request(origin, "/api/session" if args.admin else "/api/members/login", data=data)
+    jar = http.cookies.SimpleCookie()
+    for value in headers.get_all("Set-Cookie", []):
+        jar.load(value)
+    if not payload.get("authenticated") or COOKIE_NAME not in jar:
+        raise MailboxError("No mailbox session was issued.")
+    save_session(origin, jar[COOKIE_NAME].OutputString().split(";", 1)[0], args.profile)
+    return {"authenticated": True, "user": payload.get("user"), "origin": origin}
+
+
+def parser():
+    root = argparse.ArgumentParser(description=__doc__)
+    root.add_argument("--profile", default="default", help="Separate session for a local or hosted mailbox instance")
+    commands = root.add_subparsers(dest="command", required=True)
+    auth = commands.add_parser("login")
+    auth.add_argument("--origin", required=True)
+    mode = auth.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--username")
+    mode.add_argument("--admin", action="store_true")
+    auth.add_argument("--password-stdin", action="store_true")
+    for name in ("logout", "status", "accounts", "drafts"):
+        commands.add_parser(name)
+    inbox = commands.add_parser("list")
+    inbox.add_argument("--folder", choices=("inbox", "sent", "archive", "trash"), default="inbox")
+    inbox.add_argument("--query")
+    inbox.add_argument("--account")
+    inbox.add_argument("--unread", action="store_true")
+    inbox.add_argument("--page", type=int, default=1)
+    commands.add_parser("refresh").add_argument("--account")
+    for name in ("read", "mark-read", "mark-unread", "get-draft", "suggest", "send"):
+        commands.add_parser(name).add_argument("id")
+    move = commands.add_parser("move")
+    move.add_argument("id")
+    move.add_argument("folder", choices=("archive", "trash", "restore"))
+    commands.add_parser("save-draft").add_argument("id", nargs="?")
+    return root
+
+
+def send_command(args, api):
+    command = args.command
+    if command == "status":
+        return api("/api/session")
+    if command == "accounts":
+        data = api("/api/bootstrap")
+        return {"accounts": data["mailAccounts"], "aliases": api("/api/aliases?limit=100")["aliases"]}
+    if command == "list":
+        query = {"folder": args.folder, "page": max(1, args.page)}
+        if args.query:
+            query["q"] = args.query
+        if args.account:
+            query["aliasId"] = args.account
+        if args.unread:
+            query["unread"] = "1"
+        return api("/api/conversations?" + urllib.parse.urlencode(query))
+    if command == "refresh":
+        ids = [args.account] if args.account else [account["id"] for account in api("/api/bootstrap")["mailAccounts"]]
+        results = []
+        for value in ids:
+            try:
+                results.append(api("/api/mail-accounts/" + urllib.parse.quote(value, safe="") + "/refresh", data={})["result"])
+            except MailboxError as error:
+                results.append({"id": value, "error": str(error)})
+        return {"results": results}
+    if command == "drafts":
+        return api("/api/drafts")
+    identifier = "/" + urllib.parse.quote(args.id, safe="") if args.id else ""
+    if command == "read":
+        return api("/api/conversations" + identifier)
+    if command in ("mark-read", "mark-unread"):
+        return api("/api/conversations" + identifier, method="PATCH", data={"read": command == "mark-read"})
+    if command == "move":
+        return api("/api/emails" + identifier + "/placement", method="PATCH", data={"folder": args.folder})
+    draft_path = "/api/drafts" + identifier
+    if command == "get-draft":
+        return api(draft_path)
+    if command == "save-draft":
+        data = json.load(sys.stdin)
+        if not isinstance(data, dict):
+            raise MailboxError("The draft must be a JSON object.")
+        if data.get("mode") == "forward":
+            data.setdefault("includeOriginalFiles", False)
+        return api(draft_path, method="PUT" if identifier else "POST", data=data)
+    if command == "suggest":
+        return api(draft_path + "/suggest", data={"instruction": sys.stdin.read().strip()})
+    if command == "send":
+        return api(draft_path + "/send", data={})
+    raise MailboxError("Unknown mailbox command.")
+
+
+def authenticated_api(profile="default"):
+    target = session_file(profile)
+    if not target.exists():
+        raise MailboxError("Sign in to Agentic Mailbox in your own terminal using the bundled login command.")
+    try:
+        session = json.loads(target.read_text())
+        origin = origin_for(session["origin"])
+        cookie = session["cookie"]
+    except (KeyError, OSError, TypeError, ValueError):
+        raise MailboxError("Cannot read the saved mailbox session. Sign in again.") from None
+    return lambda path, **kwargs: request(origin, path, cookie=cookie, **kwargs)[0]
+
+
+def main():
+    args = parser().parse_args()
+    try:
+        if args.command == "login":
+            result = login(args)
+        elif args.command == "logout":
+            session_file(args.profile).unlink(missing_ok=True)
+            result = {"authenticated": False}
+        else:
+            result = send_command(args, authenticated_api(args.profile))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    except (MailboxError, OSError, ValueError, KeyError, TypeError) as error:
+        print(str(error) if isinstance(error, MailboxError) else "Cannot read the command input or saved session.", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -4,7 +4,8 @@ import { platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { Miniflare } from 'miniflare';
+import { Miniflare, Response as LocalResponse } from 'miniflare';
+import { createChatGPTService } from './chatgpt-local.mjs';
 import { localData as data, localPort as port } from './local-settings.mjs';
 
 process.umask(0o077);
@@ -29,7 +30,15 @@ const bindings = {};
 for (const key of ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'OUTLOOK_CLIENT_ID', 'OUTLOOK_CLIENT_SECRET']) {
   if (typeof oauth[key] === 'string') bindings[key] = oauth[key];
 }
+let chatGPT;
 const runtime = new Miniflare({
+  serviceBindings: {
+    CHATGPT: async request => {
+      chatGPT ??= createChatGPTService({ directory: data, origin, encryptionKey: identity.MAIL_ACCOUNT_KEY });
+      const result = await chatGPT(request);
+      return new LocalResponse(await result.text(), { status: result.status, headers: { 'Content-Type': 'application/json' } });
+    },
+  },
   name: 'mailbox-local', cf: false, modules: true, scriptPath: '.wrangler/local-worker/entry.js',
   compatibilityDate: '2026-07-19', compatibilityFlags: ['nodejs_compat'],
   modulesRules: [{ type: 'Text', include: ['**/*.sql'], fallthrough: true }],
