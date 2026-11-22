@@ -222,7 +222,7 @@ export default function App() {
   if (checkingSession) {
     return (
       <main className="boot-screen">
-        <div className="brand-loader"><span className="spinner" /><strong>Mailbox Vault</strong></div>
+        <div className="brand-loader"><span className="spinner" /><strong>Agentic Mailbox</strong></div>
       </main>
     );
   }
@@ -232,7 +232,7 @@ export default function App() {
   }
 
   const stats = bootstrap?.stats ?? EMPTY_STATS;
-  const appName = bootstrap?.appName ?? 'Mailbox Vault';
+  const appName = bootstrap?.appName ?? 'Agentic Mailbox';
   const primaryDomain = bootstrap?.primaryDomain ?? 'emomo.net';
   const adminEmail = bootstrap?.adminEmail ?? '';
 

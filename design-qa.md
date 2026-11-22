@@ -1,4 +1,4 @@
-# Design QA — Mailbox Vault
+# Design QA — Agentic Mailbox
 
 ## Visual truth and implementation evidence
 

@@ -17,7 +17,7 @@ const email: EmailDetail = {
   rawSize: 100, attachmentCount: 0, messageId: 'test-message', bodyText: '这是测试邮件正文。', sentAt: null, attachments: [],
 };
 const bootstrap: BootstrapPayload = {
-  appName: 'Mailbox Vault', primaryDomain: 'example.com', adminEmail: 'admin@example.com',
+  appName: 'Agentic Mailbox', primaryDomain: 'example.com', adminEmail: 'admin@example.com',
   stats: { aliasCount: 1, activeAliasCount: 1, emailCount: 1, unreadCount: 1, attachmentCount: 0, attachmentBytes: 0 },
   recentEmails: [email], recentAliases: [],
 };

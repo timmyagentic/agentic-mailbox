@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "mailbox-vault",
+	"name": "agentic-mailbox",
 	"main": "src/worker/index.ts",
 	"compatibility_date": "2026-07-19",
 	"compatibility_flags": [
@@ -21,7 +21,7 @@
 		}
 	],
 	"vars": {
-		"APP_NAME": "Mailbox Vault",
+		"APP_NAME": "Agentic Mailbox",
 		"PRIMARY_DOMAIN": "emomo.net",
 		"ADMIN_EMAIL": "qianbi3956001@gmail.com",
 		"FORWARD_TO": "qianbi3956001@gmail.com"

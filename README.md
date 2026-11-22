@@ -1,6 +1,6 @@
-# Mailbox Vault
+# Agentic Mailbox
 
-Mailbox Vault is a private Cloudflare-native inbox for managed aliases on `emomo.net`. It creates and disables aliases, stores incoming mail metadata and text in D1, stores attachments in R2, and exposes a responsive admin interface at `mailbox.timmyagentic.si`.
+Agentic Mailbox is a private Cloudflare-native inbox for managed aliases on `emomo.net`. It creates and disables aliases, stores incoming mail metadata and text in D1, stores attachments in R2, and exposes a responsive admin interface at `mailbox.timmyagentic.si`.
 
 ## MVP scope
 
@@ -22,7 +22,7 @@ This project provisions routing aliases, not login-capable IMAP/SMTP mailboxes, 
 flowchart LR
   Sender[Internet sender] --> Routing[Cloudflare Email Routing]
   Routing -->|explicit rules| Gmail[Verified Gmail destination]
-  Routing -->|catch-all| Worker[Mailbox Vault Worker]
+  Routing -->|catch-all| Worker[Agentic Mailbox Worker]
   Worker -->|registered alias| Parser[postal-mime]
   Worker -->|unknown or disabled| Reject[SMTP rejection]
   Parser --> D1[(D1 metadata and bodies)]
@@ -68,7 +68,7 @@ The checked-in Wrangler configuration binds these isolated resources:
 
 | Resource | Name |
 | --- | --- |
-| Worker | `mailbox-vault` |
+| Worker | `agentic-mailbox` |
 | Custom domain | `mailbox.timmyagentic.si` |
 | D1 | `mailbox-vault` |
 | R2 | `mailbox-vault-attachments` |
@@ -88,7 +88,7 @@ npm run db:migrate:remote
 npm run deploy
 ```
 
-After deployment, point the `emomo.net` Email Routing catch-all rule at the `mailbox-vault` Worker. Explicit aliases such as existing Gmail forwarding rules continue to take precedence.
+After deployment, point the `emomo.net` Email Routing catch-all rule at the `agentic-mailbox` Worker. Explicit aliases such as existing Gmail forwarding rules continue to take precedence.
 
 ## Security model
 

@@ -2121,7 +2121,7 @@ textarea:focus-visible {
   .login-story__copy,
   .login-assurances li,
   .login-panel > * {
-    animation: vault-enter 260ms var(--ease-out) both;
+    animation: mailbox-enter 260ms var(--ease-out) both;
   }
 
   .login-story__copy { animation-delay: 60ms; }
@@ -2135,7 +2135,7 @@ textarea:focus-visible {
   .login-panel > *:nth-child(6) { animation-delay: 200ms; }
 }
 
-@keyframes vault-enter {
+@keyframes mailbox-enter {
   from {
     opacity: 0;
     transform: translateY(6px);
