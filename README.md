@@ -4,7 +4,7 @@ Agentic Mailbox is a private Cloudflare-native inbox for managed aliases on `emo
 
 ## Run locally
 
-On Apple Silicon macOS, unzip the local download from the hosted login page and double-click **打开本地邮箱.command**. The package contains Node, workerd and the built application. It listens on loopback and opens your browser with a single-use local login. Keep the Terminal window open while using it. The package is distributed as a command-line launcher without Apple notarization.
+On Apple Silicon macOS, unzip the Mac ZIP from [GitHub Releases](https://github.com/timmyagentic/agentic-mailbox/releases) or the hosted login page and double-click **打开本地邮箱.command**. The package contains Node, workerd and the built application. It listens on loopback and opens your browser with a single-use local login. Keep the Terminal window open while using it. The package is distributed as a command-line launcher without Apple notarization.
 
 For a source checkout, install Node 22.12 or newer, run `npm ci`, then `npm start`. The default URL is `http://127.0.0.1:8787`. Stop with Ctrl+C. Set `AGENTIC_MAILBOX_DATA_DIR` and `AGENTIC_MAILBOX_LOCAL_PORT` to customize storage and port. On macOS data persists in `~/Library/Application Support/Agentic Mailbox`. Upgrades reuse the previous edition’s data directory if it already exists. Back up the active data directory including `identity.json`, which contains the login password and encryption key. Restore it with the application stopped.
 
@@ -117,9 +117,9 @@ curl --request POST 'http://localhost:8787/cdn-cgi/handler/email' \
   --data-binary @message.eml
 ```
 
-## Release verification
+## GitHub Releases
 
-Push a version tag such as `v0.1.0` from the commit you intend to release. Wait for the tag's [CI run](https://github.com/timmyagentic/agentic-mailbox/actions/workflows/ci.yml) to pass `verify` before publishing the version, uploading its Mac archive, or deploying it to Cloudflare. Use the tagged commit for each of those steps.
+Push a version tag such as `v0.1.0` or `v0.1.0-beta.1` on a commit in main. [GitHub Actions](https://github.com/timmyagentic/agentic-mailbox/actions/workflows/ci.yml) runs the full checks, builds and launches the packaged Apple Silicon edition, then publishes `agentic-mailbox-mac-arm64.zip` and `SHA256SUMS` to [GitHub Releases](https://github.com/timmyagentic/agentic-mailbox/releases). Tags with a prerelease suffix create prereleases. The hosted Worker and its R2 download are deployed separately.
 
 ## Production resources
 
