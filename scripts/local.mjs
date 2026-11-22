@@ -31,6 +31,10 @@ for (const key of ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'OUTLOOK_CLIENT_ID'
   if (typeof oauth[key] === 'string') bindings[key] = oauth[key];
 }
 let chatGPT;
+const bundledOutlookClient = join(root, 'local', 'outlook-client-id.txt');
+if (existsSync(bundledOutlookClient)) {
+  bindings.OUTLOOK_DESKTOP_CLIENT_ID = readFileSync(bundledOutlookClient, 'utf8').trim();
+}
 const runtime = new Miniflare({
   serviceBindings: {
     CHATGPT: async request => {

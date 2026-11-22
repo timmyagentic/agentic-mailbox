@@ -22,6 +22,7 @@ export interface Env {
   GMAIL_CLIENT_SECRET?: string;
   OUTLOOK_CLIENT_ID?: string;
   OUTLOOK_CLIENT_SECRET?: string;
+  OUTLOOK_DESKTOP_CLIENT_ID?: string;
   EMAIL?: SendEmail;
   AI?: Ai;
 }

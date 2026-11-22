@@ -21,16 +21,22 @@ export function isOAuthProvider(value: unknown): value is OAuthProvider {
 function providerConfig(env: Env, provider: OAuthProvider) {
   if (!env.MAIL_OAUTH_ORIGIN) return null;
   const gmail = provider === 'gmail';
-  const clientId = gmail ? env.GMAIL_CLIENT_ID : env.OUTLOOK_CLIENT_ID;
-  const clientSecret = gmail ? env.GMAIL_CLIENT_SECRET : env.OUTLOOK_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
   let callback: URL;
   try {
     callback = new URL(`/api/oauth/${provider}/callback`, env.MAIL_OAUTH_ORIGIN);
   } catch {
     return null;
   }
-  if (callback.protocol !== 'https:' && (callback.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(callback.hostname))) return null;
+  const loopback = callback.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(callback.hostname);
+  if (callback.protocol !== 'https:' && !loopback) return null;
+
+  const webClientId = gmail ? env.GMAIL_CLIENT_ID : env.OUTLOOK_CLIENT_ID;
+  const webSecret = gmail ? env.GMAIL_CLIENT_SECRET : env.OUTLOOK_CLIENT_SECRET;
+  const useWebClient = Boolean(webClientId && webSecret);
+  const desktopClientId = !gmail && env.LOCAL_MODE === '1' && loopback ? env.OUTLOOK_DESKTOP_CLIENT_ID : undefined;
+  const clientId = useWebClient ? webClientId : desktopClientId;
+  const clientSecret = useWebClient ? webSecret : undefined;
+  if (!clientId) return null;
   return {
     clientId, clientSecret, scope: gmail ? googleScopes : microsoftScopes,
     authorize: gmail ? 'https://accounts.google.com/o/oauth2/v2/auth' : `${microsoftOAuth}/authorize`,
@@ -121,7 +127,11 @@ async function requestTokens(env: Env, provider: OAuthProvider, params: Record<s
   const config = requireConfig(env, provider);
   const response = await fetch(config.token, {
     method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(12_000),
-    body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, ...params }),
+    body: new URLSearchParams({
+      client_id: config.clientId,
+      ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+      ...params,
+    }),
   }).catch(() => { throw new HttpError(502, 'oauth_unavailable', '邮箱授权服务暂时不可用。'); });
   const result = await response.json<{
     access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; error?: string;
