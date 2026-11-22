@@ -4,9 +4,11 @@ import { platform } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { Miniflare, Response as LocalResponse } from 'miniflare';
 import { createChatGPTService } from './chatgpt-local.mjs';
 import { localData as data, localPort as port } from './local-settings.mjs';
+import { localDeviceAuth } from './local-device-auth.mjs';
 
 process.umask(0o077);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -66,18 +68,49 @@ try {
     }
   }
   await db.prepare('CREATE TABLE IF NOT EXISTS local_launch(ticket TEXT PRIMARY KEY, expires INTEGER NOT NULL)').run();
-  const ticket = randomBytes(32).toString('hex');
-  await db.batch([db.prepare('DELETE FROM local_launch'), db.prepare('INSERT INTO local_launch VALUES (?,?)').bind(ticket, Date.now() + 120_000)]);
-  console.log('本地邮箱已启动', origin, '\n数据目录', data, '\n关闭窗口或按 Ctrl+C 停止。');
-  if (!process.argv.includes('--no-open') && !process.env.AGENTIC_MAILBOX_NO_OPEN && !process.env.VAULT_NO_OPEN) {
-    const url = origin + '/#localUnlock=' + ticket;
-    const opener = platform() === 'darwin' ? 'open' : platform() === 'win32' ? 'rundll32' : 'xdg-open';
-    const args = platform() === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url];
-    spawn(opener, args, { stdio: 'ignore' }).on('error', () => console.log('请手动打开本机地址，密码保存在 identity.json 的 ADMIN_PASSWORD 字段。'));
-  }
+  await db.prepare('DELETE FROM local_launch').run();
+  const issueTicket = async () => {
+    const ticket = randomBytes(32).toString('hex');
+    await db.batch([
+      db.prepare('DELETE FROM local_launch'),
+      db.prepare('INSERT INTO local_launch VALUES (?,?)').bind(ticket, Date.now() + 120_000),
+    ]);
+    return ticket;
+  };
   const stop = async () => { await runtime.dispose(); process.exit(0); };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
+
+  if (process.argv.includes('--native-launcher')) {
+    const certificate = join(data, 'device-certificate.cer');
+    const device = localDeviceAuth(certificate);
+    const reply = value => console.log(JSON.stringify(value));
+    reply({ type: 'ready', ticket: existsSync(certificate) ? undefined : await issueTicket() });
+    const commands = createInterface({ input: process.stdin, crlfDelay: Infinity });
+    for await (const line of commands) {
+      try {
+        const request = JSON.parse(line);
+        if (request.type === 'challenge') {
+          const challenge = device.challenge();
+          reply(challenge ? { type: 'challenge', ...challenge } : { type: 'certificate-unavailable' });
+        } else if (request.type === 'prove') {
+          if (device.prove(request.nonce, request.signature)) reply({ type: 'authorized', ticket: await issueTicket() });
+          else reply({ type: 'certificate-rejected' });
+        }
+      } catch {
+        reply({ type: 'certificate-rejected' });
+      }
+    }
+    await stop();
+  } else {
+    console.log('本地邮箱已启动', origin, '\n数据目录', data, '\n关闭窗口或按 Ctrl+C 停止。');
+    if (!process.argv.includes('--no-open') && !process.env.AGENTIC_MAILBOX_NO_OPEN && !process.env.VAULT_NO_OPEN) {
+      const url = origin + '/#localUnlock=' + await issueTicket();
+      const opener = platform() === 'darwin' ? 'open' : platform() === 'win32' ? 'rundll32' : 'xdg-open';
+      const args = platform() === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url];
+      spawn(opener, args, { stdio: 'ignore' }).on('error', () => console.log('请手动打开本机地址，密码保存在 identity.json 的 ADMIN_PASSWORD 字段。'));
+    }
+  }
 } catch (error) {
   await runtime.dispose();
   throw error;
