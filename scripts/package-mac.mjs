@@ -15,7 +15,7 @@ const copy = (from, to) => {
   cpSync(from, to, { recursive: true, dereference: true, filter: path => !path.endsWith('.map') && !path.endsWith('/node_modules') });
 };
 try {
-  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/chatgpt-local.mjs', 'scripts/codex-connection.mjs', 'scripts/local-device-auth.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
+  for (const item of ['dist', 'migrations', 'local', 'scripts/local.mjs', 'scripts/phone-transfer.mjs', 'scripts/chatgpt-local.mjs', 'scripts/codex-connection.mjs', 'scripts/local-device-auth.mjs', 'scripts/configure-local.mjs', 'scripts/local-settings.mjs',
     '打开本地邮箱.command', '配置本机 OAuth.command', 'LICENSE', 'LICENSE.agentic-inbox', '.wrangler/local-worker']) {
     copy(join(root, item), join(app, item));
   }

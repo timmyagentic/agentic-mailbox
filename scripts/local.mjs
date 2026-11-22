@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { Miniflare, Response as LocalResponse } from 'miniflare';
 import { createChatGPTService } from './chatgpt-local.mjs';
+import { phoneTransfer } from './phone-transfer.mjs';
 import { connectLocalCodex } from './codex-connection.mjs';
 import { localData as data, localPort as port } from './local-settings.mjs';
 import { localDeviceAuth } from './local-device-auth.mjs';
@@ -96,7 +97,10 @@ try {
     for await (const line of commands) {
       try {
         const request = JSON.parse(line);
-        if (request.type === 'challenge') {
+        if (request.type === 'phone-accounts' || request.type === 'phone-export') {
+          try { reply(await phoneTransfer(db, identity.MAIL_ACCOUNT_KEY, request)); }
+          catch { reply({ type: 'phone-error' }); }
+        } else if (request.type === 'challenge') {
           const challenge = device.challenge();
           reply(challenge ? { type: 'challenge', ...challenge } : { type: 'certificate-unavailable' });
         } else if (request.type === 'prove') {

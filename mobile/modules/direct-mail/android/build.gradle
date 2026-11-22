@@ -1,0 +1,14 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'si.timmyagentic.directmail'
+version = '1.0.0'
+android {
+  defaultConfig { consumerProguardFiles '../build/android/proguard.txt' }
+  namespace 'si.timmyagentic.directmail'
+  sourceSets.main.jniLibs.srcDirs += ["../build/android/jni"]
+}
+dependencies {
+  implementation files('../build/android/classes.jar')
+}

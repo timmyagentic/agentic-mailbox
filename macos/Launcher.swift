@@ -1,5 +1,7 @@
 import AppKit
 import CryptoKit
+import CoreImage
+import LocalAuthentication
 import Security
 import UniformTypeIdentifiers
 
@@ -72,6 +74,8 @@ private struct ServiceMessage: Decodable {
     let ticket: String?
     let nonce: String?
     let fingerprint: String?
+    let addresses: [String]?
+    let envelope: String?
 }
 
 final class Launcher: NSObject, NSApplicationDelegate {
@@ -97,7 +101,8 @@ final class Launcher: NSObject, NSApplicationDelegate {
         let enroll = NSButton(title: "登记设备证书", target: self, action: #selector(enrollCertificate))
         let oauth = NSButton(title: "配置本机 OAuth", target: self, action: #selector(configureOAuth))
         let actions = NSStackView(views: [open, certificateLogin])
-        let setup = NSStackView(views: [enroll, oauth])
+        let transfer = NSButton(title: "导入到手机", target: self, action: #selector(beginTransfer))
+        let setup = NSStackView(views: [enroll, oauth, transfer])
         let body = NSStackView(views: [status, actions, setup])
         body.orientation = .vertical
         body.alignment = .leading
@@ -193,6 +198,12 @@ final class Launcher: NSObject, NSApplicationDelegate {
             updateCertificateButton()
             status.stringValue = "本机邮箱已启动。关闭此窗口会停止服务。"
             openBrowser(ticket: message.ticket)
+        case "phone-accounts":
+            selectTransfer(message.addresses ?? [])
+        case "phone-transfer":
+            if let envelope = message.envelope { showTransfer(envelope) }
+        case "phone-error":
+            status.stringValue = "无法生成二维码，请重新选择邮箱并检查配对码。"
         case "challenge":
             guard checking, let nonce = message.nonce, let fingerprint = message.fingerprint else { return }
             do {
@@ -252,6 +263,66 @@ final class Launcher: NSObject, NSApplicationDelegate {
         } catch {
             status.stringValue = "无法登记。请检查证书包和导入密码。"
         }
+    }
+
+    @objc private func beginTransfer() {
+        guard ready else { return }
+        let auth = LAContext()
+        auth.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "将选定邮箱的授权码导入你的手机") { allowed, _ in
+            DispatchQueue.main.async {
+                if allowed { self.send(["type": "phone-accounts"]) }
+                else { self.status.stringValue = "需要验证 Mac 用户身份才能导入邮箱。" }
+            }
+        }
+    }
+
+    private func selectTransfer(_ addresses: [String]) {
+        guard !addresses.isEmpty else {
+            status.stringValue = "请先在本机邮箱设置中添加 QQ 或 163 邮箱。"
+            return
+        }
+        let dialog = NSAlert()
+        dialog.messageText = "导入到手机"
+        dialog.informativeText = "在手机打开「从 Mac 导入」，选择要转移的邮箱并输入手机显示的配对码。"
+        let accounts = NSPopUpButton(frame: .zero)
+        accounts.addItems(withTitles: addresses)
+        let code = NSTextField(frame: .zero)
+        code.placeholderString = "手机配对码"
+        let fields = NSStackView(views: [accounts, code])
+        fields.orientation = .vertical
+        fields.frame = NSRect(x: 0, y: 0, width: 315, height: 60)
+        code.widthAnchor.constraint(equalToConstant: 310).isActive = true
+        dialog.accessoryView = fields
+        dialog.window.initialFirstResponder = code
+        dialog.addButton(withTitle: "生成导入二维码")
+        dialog.addButton(withTitle: "取消")
+        if dialog.runModal() == .alertFirstButtonReturn, let address = accounts.titleOfSelectedItem {
+            send(["type": "phone-export", "address": address, "code": code.stringValue])
+        }
+        code.stringValue = ""
+    }
+
+    private func showTransfer(_ envelope: String) {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return }
+        filter.setValue(Data(envelope.utf8), forKey: "inputMessage")
+        guard let output = filter.outputImage else { return }
+        let padded = output.extent.insetBy(dx: -4, dy: -4)
+        let qr = output.composited(over: CIImage(color: .white).cropped(to: padded))
+            .transformed(by: CGAffineTransform(scaleX: 6, y: 6))
+        guard let bitmap = CIContext().createCGImage(qr, from: qr.extent) else { return }
+        let alert = NSAlert()
+        alert.messageText = "用刚才的手机扫码"
+        alert.informativeText = "二维码两分钟内有效。完成后即可关闭 Mac。"
+        let image = NSImageView(frame: NSRect(x: 0, y: 0, width: 330, height: 330))
+        image.image = NSImage(cgImage: bitmap, size: .zero)
+        image.imageScaling = .scaleProportionallyUpOrDown
+        alert.accessoryView = image
+        alert.addButton(withTitle: "关闭")
+        let timeout = Timer(timeInterval: 120, repeats: false) { _ in NSApp.abortModal() }
+        RunLoop.main.add(timeout, forMode: .modalPanel)
+        alert.runModal()
+        timeout.invalidate()
+        alert.window.orderOut(nil)
     }
 
     @objc private func configureOAuth() {

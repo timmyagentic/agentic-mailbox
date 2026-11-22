@@ -5,6 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import { message, mobileApi, origin, sessionKey } from './api';
 import { Action, Field, Loading, Notice, styles } from './ui';
 import Mailbox from './Mailbox';
+import DirectInbox from './DirectInbox';
 
 type Identity = { token: string; user: string };
 type Mode = 'login' | 'register' | 'admin';
@@ -53,7 +54,7 @@ function SignIn({ onLogin }: { onLogin: (identity: Identity) => Promise<void> })
   </KeyboardAvoidingView>;
 }
 
-export default function App() {
+function Hosted({ back }: { back: () => void }) {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [starting, setStarting] = useState(true);
   const [error, setError] = useState('');
@@ -80,14 +81,21 @@ export default function App() {
     return () => { active = false; };
   }, []);
 
-  return <SafeAreaProvider>
-    <SafeAreaView style={styles.screen}>
+  return <View style={styles.screen}>
+      <Action label="返回手机收件箱" onPress={back}/>
       {starting ? <Loading /> : identity ? <Mailbox token={identity.token} user={identity.user} onLogout={forget} /> :
         <><Notice text={error} error /><SignIn onLogin={async (next) => {
           await SecureStore.setItemAsync(sessionKey, next.token);
           setError('');
           setIdentity(next);
         }} /></>}
-    </SafeAreaView>
-  </SafeAreaProvider>;
+    </View>;
+}
+
+
+export default function App() {
+  const [hosted, setHosted] = useState(false);
+  return <SafeAreaProvider><SafeAreaView style={styles.screen}>
+    {hosted ? <Hosted back={() => setHosted(false)}/> : <DirectInbox hosted={() => setHosted(true)}/>}
+  </SafeAreaView></SafeAreaProvider>;
 }
