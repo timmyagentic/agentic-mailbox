@@ -3,7 +3,8 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'outputs/**', 'node_modules/**', '.wrangler/**', 'worker-configuration.d.ts'] },
+  { ignores: ['dist/**', 'outputs/**', 'node_modules/**', '.wrangler/**', 'worker-configuration.d.ts', 'website/public/product-ui/**'] },
+  { files: ['website/interface/build.mjs'], languageOptions: { globals: globals.node } },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {

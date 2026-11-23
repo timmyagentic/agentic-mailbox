@@ -1,0 +1,76 @@
+@import "./base.css";
+[data-product-edition="mailintro"] .pi-surface {
+  --pi-paper: #f0f2e7;
+  --pi-fg: #253b31;
+  --pi-muted: #495c53;
+  --pi-accent: #28553f;
+  --pi-line: #b7c4b3;
+  --pi-tint: #dfe7d9;
+}
+.post-hero {
+  background: #f0f2e7;
+  padding-block: clamp(32px, 4.5vw, 69px);
+}
+.post-heading {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: clamp(22px, 6vw, 92px);
+  align-items: end;
+  margin-bottom: 30px;
+}
+.post-heading h1 {
+  font-size: clamp(44px, 6.1vw, 90px);
+}
+.post-editions {
+  padding: 18px 0 12px 22px;
+  border-left: 2px solid #8ca58d;
+}
+.post-download p {
+  font-size: 15px;
+  color: var(--pi-muted);
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+.post-window {
+  overflow: hidden;
+  background: #fffef8;
+  border: 1px solid #b2c4b4;
+  border-radius: 12px;
+}
+.post-window-header,
+.post-window-header span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.post-window-header {
+  justify-content: space-between;
+  padding: 11px 18px;
+  background: #294a3e;
+  color: #fafbf4;
+}
+.post-window-header small {
+  font-size: 13px;
+  color: #d4e2d7;
+}
+.post-window .pi-figure {
+  padding: 13px 15px 0;
+}
+.post-window .pi-figure img {
+  max-height: 495px;
+  object-fit: contain;
+}
+@media (max-width: 700px) {
+  .post-heading {
+    grid-template-columns: 1fr;
+    gap: 17px;
+  }
+  .post-editions {
+    border-left: 0;
+    border-top: 1px solid #b7c4b3;
+    padding: 12px 0 0;
+  }
+  .post-window .pi-figure {
+    padding: 7px 6px 0;
+  }
+}

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Cloudflare, Inc.
 // Reader adapted from Agentic Inbox under Apache-2.0. See LICENSE.agentic-inbox.
 import { Button } from '@cloudflare/kumo';
+import { Button as ActionButton } from '@heroui/react/button';
 import {
   ArrowBendUpLeftIcon, ArrowBendUpRightIcon, ArrowLeftIcon, CaretDownIcon, ChatCircleIcon,
   EnvelopeSimpleIcon, FileIcon, FolderIcon, StarIcon, TrashIcon, XIcon,
@@ -13,9 +14,8 @@ import { MessageBody } from './MessageBody';
 export function IconButton({
   label, icon, onClick, active, disabled, className,
 }: { label: string; icon: ReactNode; onClick: () => void; active?: boolean; disabled?: boolean; className?: string }) {
-  return <Button variant={active ? 'secondary' : 'ghost'} shape="square" size="sm" type="button"
-    title={label} aria-label={label} aria-pressed={active} icon={icon} className={className}
-    onClick={onClick} disabled={disabled} />;
+  return <ActionButton type="button" aria-label={label} aria-pressed={active}
+    className={['mail-icon',className].filter(Boolean).join(' ')} onPress={onClick} isDisabled={disabled}>{icon}</ActionButton>;
 }
 
 export default function MailReader({
