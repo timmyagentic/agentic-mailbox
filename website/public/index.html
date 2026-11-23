@@ -75,18 +75,25 @@
 
     <section class="editions shell" id="editions" aria-labelledby="editions-title">
       <h2 id="editions-title">选一种方式开始</h2>
-      <div class="edition-grid">
-        <article class="edition">
+      <fieldset class="edition-picker">
+        <legend>运行位置</legend>
+        <div class="edition-options">
+          <label><input type="radio" name="edition" value="local" checked>在我的 Mac 上</label>
+          <label><input type="radio" name="edition" value="hosted">在浏览器里</label>
+        </div>
+        <div class="edition-grid">
+        <article class="edition edition-local">
           <h3>Mac 本地版</h3>
           <p>邮箱服务在你的 Mac 上运行，邮件和附件保存在本机。适合想自己管理数据和配置的人。</p>
           <a class="text-link" href="https://mailbox.timmyagentic.si/downloads/agentic-mailbox-mac-arm64.zip">下载 Mac Beta <span aria-hidden="true">↓</span></a>
         </article>
-        <article class="edition">
+        <article class="edition edition-hosted">
           <h3>托管版</h3>
           <p>用浏览器创建自己的邮箱空间，从网站访问同步后的邮件。Gmail 和 Outlook 的可用性取决于站点的 OAuth 配置。</p>
           <a class="text-link" href="https://mailbox.timmyagentic.si/">打开邮箱工作台 <span aria-hidden="true">↗</span></a>
         </article>
       </div>
+      </fieldset>
       <p class="availability"><strong>开发预览</strong>　iOS、Android 和配套 Agent Skill 正在测试。</p>
     </section>
   </main>
