@@ -1,5 +1,6 @@
+import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { type ReactNode, useEffect, useId, useRef } from 'react';
+import { type ReactNode, useRef } from 'react';
 
 type ModalProps = {
   title: string;
@@ -10,41 +11,28 @@ type ModalProps = {
 };
 
 export function Modal({ title, subtitle, wide = false, children, onClose }: ModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-
-  useEffect(() => {
-    dialogRef.current?.showModal();
-    return () => dialogRef.current?.close();
-  }, []);
-
+  const opener = useRef<HTMLElement | null>(null);
   return (
-    <dialog
-      ref={dialogRef}
-      aria-labelledby={titleId}
-      className={`modal ${wide ? 'modal--wide' : ''}`}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) {
-          onClose();
-        }
-      }}
-    >
-      <div className="modal__surface">
-        <header className="modal__header">
-          <div>
-            <h2 id={titleId}>{title}</h2>
-            {subtitle ? <p>{subtitle}</p> : null}
+    <Dialog.Root open onOpenChange={open => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="mail-dialog-overlay" />
+        <Dialog.Content className={wide ? 'modal mail-dialog modal--wide' : 'modal mail-dialog'}
+          {...(!subtitle && { 'aria-describedby': undefined })}
+          onOpenAutoFocus={() => { opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
+          onCloseAutoFocus={event => {
+            if (opener.current?.isConnected) { event.preventDefault(); opener.current.focus(); }
+          }}>
+          <div className="modal__surface">
+            <header className="modal__header">
+              <div><Dialog.Title>{title}</Dialog.Title>{subtitle && <Dialog.Description>{subtitle}</Dialog.Description>}</div>
+              <Dialog.Close asChild>
+                <button className="icon-button" type="button" title="关闭" aria-label="关闭"><X size={18} /></button>
+              </Dialog.Close>
+            </header>
+            <div className="modal__body">{children}</div>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} title="关闭" aria-label="关闭">
-            <X size={18} />
-          </button>
-        </header>
-        <div className="modal__body">{children}</div>
-      </div>
-    </dialog>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

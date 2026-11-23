@@ -1,3 +1,4 @@
+import * as Tabs from '@radix-ui/react-tabs';
 import {
   Archive,
   BadgeCheck,
@@ -10,6 +11,12 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
+
+const loginModes = [
+  { value: 'member', label: '个人登录' },
+  { value: 'register', label: '注册账号' },
+  { value: 'admin', label: '管理员登录' },
+] as const;
 
 type LoginViewProps = {
   error: string;
@@ -31,6 +38,56 @@ export function LoginView({ edition, error, busy, onLogin, onCertificateLogin, o
     event.preventDefault();
     await onLogin(password, member ? { username, register: mode === 'register' } : undefined);
   };
+
+  const fields = <>
+<form onSubmit={submit} className="login-form" aria-busy={busy}>
+             {member && <label>用户名<input value={username} required autoComplete="username" minLength={3} maxLength={40} title="3–40 位字母、数字、下划线或短横线" onChange={event => setUsername(event.target.value)} /></label>}
+            <label htmlFor="admin-password">{member ? '密码（至少 12 位）' : '管理员密码'}</label>
+            <div className="password-field">
+              <LockKeyhole size={18} aria-hidden="true" />
+              <input
+                id="admin-password"
+                type={visible ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                placeholder={member ? '输入个人密码' : '输入管理员密码'} minLength={member ? 12 : undefined} maxLength={member ? 256 : undefined}
+                aria-invalid={Boolean(error)}
+                aria-describedby={error ? 'login-error' : undefined}
+                autoFocus={edition === 'local'}
+                required
+              />
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setVisible((current) => !current)}
+                title={visible ? '隐藏密码' : '显示密码'}
+                aria-label={visible ? '隐藏密码' : '显示密码'}
+                aria-pressed={visible}
+              >
+                {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
+              </button>
+            </div>
+            <button className="button button--primary button--full" type="submit" disabled={busy || !password}>
+              {busy ? '请稍候…' : mode === 'register' ? '创建账号' : member ? '登录' : '进入管理端'}
+            </button>
+          </form>
+
+          {edition === 'local' && onChatGPTLogin && <button className="button button--secondary button--full"
+            type="button" disabled={busy} onClick={onChatGPTLogin}>Continue with ChatGPT</button>}
+          {!member && edition !== 'local' && <button
+            className="button button--secondary button--full login-certificate"
+            type="button"
+            onClick={() => void onCertificateLogin()}
+            disabled={busy}
+          >
+            <BadgeCheck size={17} aria-hidden="true" />
+            使用设备证书登录
+          </button>}
+          {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
+
+          {edition === 'hosted' && <a className="login-local-download" href="/downloads/agentic-mailbox-mac-arm64.zip">下载本地版 · Mac（Apple Silicon）</a>}
+  </>;
 
   return (
     <main className="login-page">
@@ -95,56 +152,17 @@ export function LoginView({ edition, error, busy, onLogin, onCertificateLogin, o
           <h2 id="login-title">{mode === 'register' ? '创建个人邮箱空间' : member ? '登录个人邮箱空间' : edition === 'local' ? '本地邮箱' : '管理员登录'}</h2>
           <p className="login-intro">{member ? '邮件与附件仅在你的账号中可见。' : edition === 'local' ? '使用启动器打开，或输入本机密码。' : '使用管理员密码或设备证书登录'}</p>
 
-          <form onSubmit={submit} className="login-form" aria-busy={busy}>
-             {member && <label>用户名<input value={username} required autoComplete="username" minLength={3} maxLength={40} title="3–40 位字母、数字、下划线或短横线" onChange={event => setUsername(event.target.value)} /></label>}
-            <label htmlFor="admin-password">{member ? '密码（至少 12 位）' : '管理员密码'}</label>
-            <div className="password-field">
-              <LockKeyhole size={18} aria-hidden="true" />
-              <input
-                id="admin-password"
-                type={visible ? 'text' : 'password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                placeholder={member ? '输入个人密码' : '输入管理员密码'} minLength={member ? 12 : undefined} maxLength={member ? 256 : undefined}
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? 'login-error' : undefined}
-                autoFocus
-                required
-              />
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => setVisible((current) => !current)}
-                title={visible ? '隐藏密码' : '显示密码'}
-                aria-label={visible ? '隐藏密码' : '显示密码'}
-                aria-pressed={visible}
-              >
-                {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
-              </button>
-            </div>
-            <button className="button button--primary button--full" type="submit" disabled={busy || !password}>
-              {busy ? '请稍候…' : mode === 'register' ? '创建账号' : member ? '登录' : '进入管理端'}
-            </button>
-          </form>
-          {edition === 'hosted' && <div className="login-mode-actions">{(['member', 'register', 'admin'] as const).filter(item => item !== mode).map(item =>
-            <button className="button button--secondary" type="button" key={item} onClick={() => { setMode(item); setPassword(''); }}>
-              {{ member: '个人登录', register: '注册账号', admin: '管理员登录' }[item]}
-            </button>)}</div>}
-          {edition === 'local' && onChatGPTLogin && <button className="button button--secondary button--full"
-            type="button" disabled={busy} onClick={onChatGPTLogin}>Continue with ChatGPT</button>}
-          {!member && edition !== 'local' && <button
-            className="button button--secondary button--full login-certificate"
-            type="button"
-            onClick={() => void onCertificateLogin()}
-            disabled={busy}
-          >
-            <BadgeCheck size={17} aria-hidden="true" />
-            使用设备证书登录
-          </button>}
-          {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
-
-          {edition === 'hosted' && <a className="login-local-download" href="/downloads/agentic-mailbox-mac-arm64.zip">下载本地版 · Mac（Apple Silicon）</a>}
+          {edition === 'hosted' ? (
+            <Tabs.Root value={mode} onValueChange={value => {
+              const next = loginModes.find(item => item.value === value);
+              if (next) { setMode(next.value); setPassword(''); setVisible(false); }
+            }}>
+              <Tabs.List className="login-tabs" aria-label="选择登录方式">
+                {loginModes.map(item => <Tabs.Trigger key={item.value} value={item.value} disabled={busy}>{item.label}</Tabs.Trigger>)}
+              </Tabs.List>
+              <Tabs.Content value={mode} className="login-tab-panel">{fields}</Tabs.Content>
+            </Tabs.Root>
+          ) : fields}
           <p className="login-submit-hint">
             <Keyboard size={17} aria-hidden="true" />
             按 Enter 提交
