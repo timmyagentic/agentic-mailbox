@@ -1,178 +1,244 @@
-import * as Tabs from '@radix-ui/react-tabs';
+import { type FormEvent, useState } from "react";
+import { Tabs } from "@heroui/react/tabs";
+import { Button } from "@heroui/react/button";
+import { Input } from "@heroui/react/input";
+import { TextField } from "@heroui/react/textfield";
+import { Label } from "@heroui/react/label";
 import {
-  Archive,
-  BadgeCheck,
+  ArrowDownToLine,
+  ArrowRight,
   Eye,
   EyeOff,
-  Keyboard,
+  Inbox,
   LockKeyhole,
   Mail,
-  Paperclip,
   ShieldCheck,
-} from 'lucide-react';
-import { type FormEvent, useState } from 'react';
-
-const loginModes = [
-  { value: 'member', label: '个人登录' },
-  { value: 'register', label: '注册账号' },
-  { value: 'admin', label: '管理员登录' },
+} from "lucide-react";
+type Mode = "member" | "register" | "admin";
+const modes = [
+  { key: "member", label: "个人登录" },
+  { key: "register", label: "注册账号" },
+  { key: "admin", label: "管理员登录" },
 ] as const;
-
-type LoginViewProps = {
+type Props = {
   error: string;
   busy: boolean;
-  edition?: 'local' | 'hosted';
-  onLogin: (password: string, member?: { username: string; register: boolean }) => Promise<void>;
+  edition?: "local" | "hosted";
+  onLogin: (
+    password: string,
+    member?: { username: string; register: boolean },
+  ) => Promise<void>;
   onCertificateLogin: () => Promise<void>;
   onChatGPTLogin?: () => void;
 };
-
-export function LoginView({ edition, error, busy, onLogin, onCertificateLogin, onChatGPTLogin }: LoginViewProps) {
-  const [mode, setMode] = useState<'member' | 'register' | 'admin'>(edition === 'hosted' ? 'member' : 'admin');
-  const [username, setUsername] = useState('');
-  const member = mode !== 'admin';
-  const [password, setPassword] = useState('');
-  const [visible, setVisible] = useState(false);
-
-  const submit = async (event: FormEvent) => {
+export function LoginView({
+  edition,
+  error,
+  busy,
+  onLogin,
+  onCertificateLogin,
+  onChatGPTLogin,
+}: Props) {
+  const [mode, setMode] = useState<Mode>(
+      edition === "hosted" ? "member" : "admin",
+    ),
+    [username, setUsername] = useState(""),
+    [password, setPassword] = useState(""),
+    [visible, setVisible] = useState(false);
+  const member = mode !== "admin",
+    local = edition === "local";
+  const heading =
+    mode === "register"
+      ? "创建个人邮箱空间"
+      : member
+        ? "登录个人邮箱空间"
+        : local
+          ? "本地邮箱"
+          : "管理员登录";
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    await onLogin(password, member ? { username, register: mode === 'register' } : undefined);
-  };
-
-  const fields = <>
-<form onSubmit={submit} className="login-form" aria-busy={busy}>
-             {member && <label>用户名<input value={username} required autoComplete="username" minLength={3} maxLength={40} title="3–40 位字母、数字、下划线或短横线" onChange={event => setUsername(event.target.value)} /></label>}
-            <label htmlFor="admin-password">{member ? '密码（至少 12 位）' : '管理员密码'}</label>
-            <div className="password-field">
-              <LockKeyhole size={18} aria-hidden="true" />
-              <input
-                id="admin-password"
-                type={visible ? 'text' : 'password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                placeholder={member ? '输入个人密码' : '输入管理员密码'} minLength={member ? 12 : undefined} maxLength={member ? 256 : undefined}
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? 'login-error' : undefined}
-                autoFocus={edition === 'local'}
-                required
-              />
-              <button
-                className="icon-button"
-                type="button"
-                onClick={() => setVisible((current) => !current)}
-                title={visible ? '隐藏密码' : '显示密码'}
-                aria-label={visible ? '隐藏密码' : '显示密码'}
-                aria-pressed={visible}
-              >
-                {visible ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
-              </button>
-            </div>
-            <button className="button button--primary button--full" type="submit" disabled={busy || !password}>
-              {busy ? '请稍候…' : mode === 'register' ? '创建账号' : member ? '登录' : '进入管理端'}
-            </button>
-          </form>
-
-          {edition === 'local' && onChatGPTLogin && <button className="button button--secondary button--full"
-            type="button" disabled={busy} onClick={onChatGPTLogin}>Continue with ChatGPT</button>}
-          {!member && edition !== 'local' && <button
-            className="button button--secondary button--full login-certificate"
-            type="button"
-            onClick={() => void onCertificateLogin()}
-            disabled={busy}
+    await onLogin(
+      password,
+      member ? { username, register: mode === "register" } : undefined,
+    );
+  }
+  const fields = (
+    <>
+      <form onSubmit={submit} className="mail-entry-fields" aria-busy={busy}>
+        {member && (
+          <TextField
+            value={username}
+            onChange={setUsername}
+            isRequired
+            minLength={3}
+            maxLength={40}
           >
-            <BadgeCheck size={17} aria-hidden="true" />
-            使用设备证书登录
-          </button>}
-          {error ? <div id="login-error" className="form-error" role="alert">{error}</div> : null}
-
-          {edition === 'hosted' && <a className="login-local-download" href="/downloads/agentic-mailbox-mac-arm64.zip">下载本地版 · Mac（Apple Silicon）</a>}
-  </>;
-
-  return (
-    <main className="login-page">
-      <aside className="login-story" aria-labelledby="mailbox-title">
-        <div className="login-brand">
-          <div className="brand-mark brand-mark--large" aria-hidden="true">
-            <Archive size={28} />
+            <Label>用户名</Label>
+            <Input
+              autoComplete="username"
+              title="3–40 位字母、数字、下划线或短横线"
+            />
+          </TextField>
+        )}
+        <TextField
+          value={password}
+          onChange={setPassword}
+          isRequired
+          isInvalid={!!error}
+          minLength={member ? 12 : undefined}
+          maxLength={member ? 256 : undefined}
+        >
+          <Label>{member ? "密码（至少 12 位）" : "管理员密码"}</Label>
+          <div className="mail-entry-password">
+            <LockKeyhole size={17} aria-hidden="true" />
+            <Input
+              id="admin-password"
+              type={visible ? "text" : "password"}
+              autoComplete={
+                mode === "register" ? "new-password" : "current-password"
+              }
+              placeholder={member ? "输入个人密码" : "输入管理员密码"}
+              aria-describedby={error ? "login-error" : undefined}
+              autoFocus={local}
+            />
+            <Button
+              type="button"
+              className="mail-icon"
+              aria-label={visible ? "隐藏密码" : "显示密码"}
+              aria-pressed={visible}
+              onPress={() => setVisible(!visible)}
+            >
+              {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+            </Button>
           </div>
-          <div>
-            <h1 id="mailbox-title">Agentic Mailbox</h1>
-            <p>邮箱资产管理</p>
-          </div>
-        </div>
-
-        <div className="login-story__copy">
-          <span className="login-story__rule" aria-hidden="true" />
-          <p>集中管理邮箱地址、纯文本邮件与附件。</p>
-          <p>所有管理操作仅在认证会话中开放。</p>
-        </div>
-
-        <ul className="login-assurances" aria-label="管理端能力">
-          <li>
-            <span className="login-assurances__icon" aria-hidden="true">
-              <Paperclip size={22} />
-            </span>
-            <span>
-              <strong>私密附件保护</strong>
-              <small>附件存储与访问均受管理员会话控制。</small>
-            </span>
-          </li>
-          <li>
-            <span className="login-assurances__icon" aria-hidden="true">
-              <Mail size={22} />
-            </span>
-            <span>
-              <strong>纯文本消息查看</strong>
-              <small>邮件正文以纯文本呈现，降低内容执行风险。</small>
-            </span>
-          </li>
-          <li>
-            <span className="login-assurances__icon" aria-hidden="true">
-              <ShieldCheck size={22} />
-            </span>
-            <span>
-              <strong>受保护的管理员会话</strong>
-              <small>登录后才可访问邮箱、邮件与附件数据。</small>
-            </span>
-          </li>
-        </ul>
-
-        <footer className="login-story__footer">
-          <span className="status-dot" aria-hidden="true" />
-          <span>服务就绪</span>
-          <span aria-hidden="true">·</span>
-          <span>Cloudflare Workers</span>
-        </footer>
-      </aside>
-
-      <section className="login-access" aria-labelledby="login-title">
-        <div className="login-panel">
-
-          <h2 id="login-title">{mode === 'register' ? '创建个人邮箱空间' : member ? '登录个人邮箱空间' : edition === 'local' ? '本地邮箱' : '管理员登录'}</h2>
-          <p className="login-intro">{member ? '邮件与附件仅在你的账号中可见。' : edition === 'local' ? '使用启动器打开，或输入本机密码。' : '使用管理员密码或设备证书登录'}</p>
-
-          {edition === 'hosted' ? (
-            <Tabs.Root value={mode} onValueChange={value => {
-              const next = loginModes.find(item => item.value === value);
-              if (next) { setMode(next.value); setPassword(''); setVisible(false); }
-            }}>
-              <Tabs.List className="login-tabs" aria-label="选择登录方式">
-                {loginModes.map(item => <Tabs.Trigger key={item.value} value={item.value} disabled={busy}>{item.label}</Tabs.Trigger>)}
-              </Tabs.List>
-              <Tabs.Content value={mode} className="login-tab-panel">{fields}</Tabs.Content>
-            </Tabs.Root>
-          ) : fields}
-          <p className="login-submit-hint">
-            <Keyboard size={17} aria-hidden="true" />
-            按 Enter 提交
+        </TextField>
+        {error && (
+          <p role="alert" id="login-error" className="mail-entry-error">
+            {error}
           </p>
-          <footer className="login-footer">
-            <ShieldCheck size={15} aria-hidden="true" />
-            <span>{edition === 'hosted' ? '托管版 · Agentic Mailbox' : 'Agentic Mailbox'}</span>
-          </footer>
+        )}
+        <Button
+          type="submit"
+          isDisabled={busy || !password}
+          className="mail-entry-submit"
+        >
+          {busy
+            ? "请稍候…"
+            : mode === "register"
+              ? "创建账号"
+              : member
+                ? "登录"
+                : "进入管理端"}
+          <ArrowRight size={17} />
+        </Button>
+      </form>
+      {!member && !local && (
+        <Button
+          type="button"
+          className="mail-entry-alternative"
+          isDisabled={busy}
+          onPress={() => void onCertificateLogin()}
+        >
+          <ShieldCheck size={17} />
+          使用设备证书登录
+        </Button>
+      )}
+      {local && onChatGPTLogin && (
+        <Button
+          type="button"
+          className="mail-entry-alternative"
+          isDisabled={busy}
+          onPress={onChatGPTLogin}
+        >
+          Continue with ChatGPT
+        </Button>
+      )}
+    </>
+  );
+  return (
+    <main className="mail-entry">
+      <div className="mail-entry-wrap">
+        <div className="mail-entry-brand">
+          <span>
+            <Inbox size={24} />
+            Agentic Mailbox
+          </span>
+          <small>{local ? "Mac 本地版" : "托管工作台"}</small>
         </div>
-      </section>
+        <div className="mail-entry-layout">
+          <section className="mail-entry-intro">
+            <h1>{local ? "你的本地收件箱。" : <>一个空间，<br />收齐所有来信。</>}</h1>
+            <p>
+              {local
+                ? "在这台 Mac 管理邮件、附件和账号。"
+                : "连接邮箱后，可以按会话阅读、回复和保存草稿。每个账号独立管理自己的邮件与附件。"}
+            </p>
+            <div className="mail-entry-providers" aria-label="支持的邮箱">
+              {["QQ 邮箱", "网易 163", "Gmail", "Outlook"].map((name) => (
+                <span key={name}>
+                  <Mail size={14} />
+                  {name}
+                </span>
+              ))}
+            </div>
+            {!local && (
+              <a href="https://agentic-mailbox.timmyagentic.si/">
+                查看产品介绍 <ArrowRight size={15} />
+              </a>
+            )}
+          </section>
+          <section className="mail-entry-card" aria-labelledby="login-title">
+            <h2 id="login-title">{heading}</h2>
+            <p>
+              {member
+                ? "使用个人账号进入自己的收件箱。"
+                : local
+                  ? "使用启动器打开，或输入本机密码。"
+                  : "使用管理员密码或已登记的设备证书。"}
+            </p>
+            {edition === "hosted" ? (
+              <Tabs
+                selectedKey={mode}
+                onSelectionChange={(key) => {
+                  const next = modes.find((m) => m.key === key);
+                  if (next) {
+                    setMode(next.key);
+                    setPassword("");
+                    setVisible(false);
+                  }
+                }}
+              >
+                <Tabs.List
+                  className="mail-entry-tabs"
+                  aria-label="选择登录方式"
+                >
+                  {modes.map((m) => (
+                    <Tabs.Tab id={m.key} key={m.key} isDisabled={busy}>
+                      {m.label}
+                    </Tabs.Tab>
+                  ))}
+                </Tabs.List>
+                {modes.map((m) => (
+                  <Tabs.Panel key={m.key} id={m.key}>
+                    {mode === m.key && fields}
+                  </Tabs.Panel>
+                ))}
+              </Tabs>
+            ) : (
+              fields
+            )}
+            {!local && (
+              <a
+                href="/downloads/agentic-mailbox-mac-arm64.zip"
+                className="mail-entry-download"
+              >
+                <ArrowDownToLine size={15} />
+                下载 Mac 本地版
+              </a>
+            )}
+          </section>
+        </div>
+      </div>
     </main>
   );
 }

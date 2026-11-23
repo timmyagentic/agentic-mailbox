@@ -2,9 +2,7 @@
 // Mailbox layout and navigation adapted from Agentic Inbox under Apache-2.0. See LICENSE.agentic-inbox.
 import { Button, Input } from '@cloudflare/kumo';
 import {
-  ArchiveIcon, ArrowUpIcon, ArrowsClockwiseIcon, CaretLeftIcon, CaretRightIcon, FileIcon, FolderIcon,
-  GaugeIcon, GearSixIcon, ListIcon, MagnifyingGlassIcon, PaperPlaneTiltIcon, PencilSimpleIcon,
-  RobotIcon, SignOutIcon, StarIcon, TrashIcon, TrayIcon, UserIcon, XIcon,
+  ArchiveIcon, ArrowUpIcon, ArrowsClockwiseIcon, CaretLeftIcon, CaretRightIcon, FileIcon, GearSixIcon, ListIcon, MagnifyingGlassIcon, PaperPlaneTiltIcon, RobotIcon, StarIcon, TrashIcon, TrayIcon, UserIcon, XIcon,
 } from '@phosphor-icons/react';
 import { type FormEvent, type ReactNode, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type {
@@ -12,6 +10,7 @@ import type {
 } from '../../shared/types';
 import { ApiRequestError, mailboxApi } from '../api';
 import { formatDate, formatLongDate, senderLabel } from '../format';
+import WorkspaceNavigation from './WorkspaceNavigation';
 import type { Composer } from './ComposePanel';
 import MailboxSplitView from './MailboxSplitView';
 import MailReader, { IconButton } from './MailReader';
@@ -244,47 +243,10 @@ export default function InboxWorkbench({
 
   return (
     <div className="mailbox-workbench flex overflow-hidden bg-kumo-base text-kumo-default antialiased">
-      {mobileMenu ? <button type="button" aria-label="关闭导航" className="fixed inset-0 z-20 bg-black/20 border-0 md:hidden" onClick={() => setMobileMenu(false)} /> : null}
-      <aside className={`flex-col w-[240px] shrink-0 border-r border-kumo-line bg-kumo-tint
-        ${mobileMenu ? 'flex fixed top-0 left-0 bottom-0 z-30' : 'hidden md:flex'}`}>
-        <div className="px-4 pt-4 pb-3">
-          <Button variant="ghost" size="sm" icon={<CaretLeftIcon size={16} />} onClick={() => navigate('aliases')}>邮箱地址</Button>
-          <div className="font-semibold text-base mt-2 truncate">{appName}</div>
-          <div className="text-sm text-kumo-subtle truncate">{sources.find(({ id }) => id === sourceId)?.address ?? primaryDomain}</div>
-        </div>
-        <div className="px-2 pb-3">
-          <Button variant="primary" icon={<PencilSimpleIcon size={18} />} className="w-full justify-start" disabled={Boolean(busy)}
-            onClick={() => { navigate('inbox'); start(); }}>写信</Button>
-        </div>
-        <nav className="flex-1 overflow-y-auto px-2 space-y-1.5" aria-label="邮箱导航">
-          {folders.map(({ id, label, Icon }) => {
-            const active = isMailView && id === folder;
-            const count = id === 'inbox' ? unread : id === 'drafts' ? drafts.length : 0;
-            return <button key={id} type="button" onClick={() => selectFolder(id)} aria-current={active ? 'page' : undefined}
-              className={`mailbox-outline flex items-center gap-3 w-full px-3 py-2 rounded-md border-0 cursor-pointer text-left text-sm
-                ${active ? 'bg-kumo-fill text-kumo-default font-semibold' : 'bg-transparent text-kumo-subtle hover:bg-kumo-fill'}`}>
-              <Icon size={18} />{label}{count > 0 ? <span className="ml-auto text-xs tabular-nums">{count}</span> : null}
-            </button>;
-          })}
-          <div className="mt-6 px-2">
-            <label htmlFor="mailbox-source" className="block text-xs font-medium text-kumo-subtle mb-2">邮箱来源</label>
-            <select id="mailbox-source" className="w-full min-w-0 border border-kumo-line rounded-md px-2 py-1.5 bg-kumo-base text-sm text-kumo-default"
-              aria-label="筛选邮箱" value={sourceId}
-              onChange={(event) => { setSourceId(event.target.value); setPage(1); onSelect(null); if (!isMailView) navigate('inbox'); }}>
-              <option value="">全部邮箱</option>
-              {sources.map(({ id, address }) => <option key={id} value={id}>{address}</option>)}
-            </select>
-          </div>
-          <div className="mt-5 space-y-1 border-t border-kumo-line pt-2">
-            <Button variant={activeView === 'overview' ? 'secondary' : 'ghost'} className="w-full justify-start" size="sm" icon={<GaugeIcon size={17} />} onClick={() => navigate('overview')}>概览</Button>
-            <Button variant={activeView === 'files' ? 'secondary' : 'ghost'} className="w-full justify-start" size="sm" icon={<FolderIcon size={17} />} onClick={() => navigate('files')}>附件</Button>
-          </div>
-        </nav>
-        <div className="flex gap-2 items-center border-t border-kumo-line p-3">
-          <span className="text-xs text-kumo-subtle flex-1 truncate">{userLabel}</span>
-          <IconButton label="退出登录" icon={<SignOutIcon size={18} />} onClick={onLogout} />
-        </div>
-      </aside>
+      <WorkspaceNavigation open={mobileMenu} onOpen={setMobileMenu} appName={appName} primaryDomain={primaryDomain} userLabel={userLabel}
+        sources={sources} sourceId={sourceId} folder={folder} activeView={activeView} unread={unread} draftCount={drafts.length} busy={Boolean(busy)}
+        onNavigate={navigate} onFolder={selectFolder} onCompose={()=>{navigate('inbox');start();}} onLogout={onLogout}
+        onSource={id=>{setSourceId(id);setPage(1);onSelect(null);if(!isMailView)navigate('inbox');}} />
       <main className="flex-1 flex flex-col min-w-0 bg-kumo-base">
         <header className="flex items-center gap-2 px-3 py-2.5 bg-kumo-base border-b border-kumo-line shrink-0 md:px-5 md:gap-4">
           <IconButton label="打开导航" icon={<ListIcon size={20} />} onClick={() => setMobileMenu(true)} className="md:hidden shrink-0" />
