@@ -140,3 +140,5 @@
 .edition-questions h2{font:var(--heading-2);letter-spacing:-.035em;}.edition-questions dl{margin:24px 0;}
 .edition-questions dt{font:var(--button-md);margin:16px 0 4px;}.edition-questions dd{margin:0;color:var(--muted-text);}
 .edition-questions dd a{text-decoration:underline;}
+
+.landing-mailintro .demo-section figcaption { color: var(--muted-text); }
