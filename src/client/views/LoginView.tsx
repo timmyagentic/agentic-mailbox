@@ -206,21 +206,15 @@ export function LoginView({
               fields
             )}
             {!local && (
-              <a
-                href="/downloads/agentic-mailbox-mac-arm64.zip"
-                className="mail-entry-download"
-              >
-                <ArrowDownToLine size={15} />
-                下载 Mac 本地版
-              </a>
-            )}
-            {!local && (
-              <a
-                className="mail-entry-product"
-                href="https://agentic-mailbox.timmyagentic.si/"
-              >
-                产品介绍 <ArrowRight size={15} />
-              </a>
+              <nav className="mail-entry-links" aria-label="其他入口">
+                <a href="/downloads/agentic-mailbox-mac-arm64.zip" className="mail-entry-download">
+                  <ArrowDownToLine size={15} />
+                  下载 Mac 本地版
+                </a>
+                <a className="mail-entry-product" href="https://agentic-mailbox.timmyagentic.si/">
+                  产品介绍 <ArrowRight size={15} />
+                </a>
+              </nav>
             )}
           </section>
         </div>
