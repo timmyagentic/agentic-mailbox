@@ -548,3 +548,17 @@
     padding-inline: 6px;
   }
 }
+
+.mail-entry-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  border-top: 1px solid #dfe4e6;
+  margin-top: 16px;
+  padding-top: 6px;
+}
+.mail-entry .mail-entry-links a {
+  margin: 0;
+  min-height: 44px;
+}
