@@ -13,8 +13,9 @@
   <link rel="icon" href="/assets/favicon.png" type="image/png">
   <link rel="stylesheet" href="/site.css">
   <title>Agentic Mailbox｜多个邮箱，一个收件箱</title>
+<link id="react-aria-pressable-style" rel="stylesheet" href="/landing.css">
 </head>
-<body>
+<body class="landing landing-mailintro">
   <a class="skip" href="#main">跳到内容</a>
   <header class="site-header">
     <div class="shell nav">
@@ -28,31 +29,15 @@
   </header>
 
   <main id="main">
-    <section class="hero" aria-labelledby="hero-title">
-      <div class="shell hero-grid">
-        <div class="hero-copy">
-          <h1 id="hero-title">多个邮箱，<br>一个收件箱<span>。</span></h1>
-          <p class="hero-description">把 QQ、163、Gmail 和 Outlook 集中在一起。一键刷新，按会话读信，再用原邮箱回复或转发。</p>
-          <div class="cta-row">
-            <a class="button primary" href="https://mailbox.timmyagentic.si/downloads/agentic-mailbox-mac-arm64.zip">
-              下载 Mac Beta <span aria-hidden="true">↓</span>
-            </a>
-            <a class="button secondary" href="https://mailbox.timmyagentic.si/">打开托管版 <span aria-hidden="true">↗</span></a>
-          </div>
-          <p class="download-note">Apple Silicon Mac · 解压 ZIP 后双击启动</p>
-        </div>
-        <figure class="hero-figure">
-          <div class="app-window">
-            <div class="window-bar" aria-hidden="true">
-              <div class="window-dots"><span></span><span></span><span></span></div>
-              <span>Agentic Mailbox</span>
-            </div>
-            <img src="/assets/mailbox-inbox.webp" width="1344" height="756" alt="真实邮箱界面，左侧是不同邮箱账户和会话列表，右侧打开了一封账单邮件" fetchpriority="high">
-          </div>
-          <figcaption>统一收件箱的实际界面，使用示例邮件。</figcaption>
-        </figure>
-      </div>
-    </section>
+    <section class="landing-hero" aria-labelledby="hero-title">
+  <div class="landing-copy">
+    <h1 id="hero-title"><span class="landing-line">不同的邮箱，</span><span class="landing-line">在一处读完。</span></h1>
+    <p class="landing-desc">把 QQ、163、Gmail 和 Outlook 放进同一个收件箱。按会话读信，用收到邮件的那个账号回复。</p>
+    <div class="landing-actions"><a class="landing-action" data-primary-action href="https://mailbox.timmyagentic.si/downloads/agentic-mailbox-mac-arm64.zip">下载 Mac Beta <span aria-hidden="true">↗</span></a></div>
+    <p class="landing-note">Apple Silicon Mac · 解压 ZIP 后双击启动</p>
+  </div>
+  <figure class="landing-proof mail-window"><img src="/assets/mailbox-inbox.webp" width="1344" height="756" alt="真实邮箱界面，左侧是不同邮箱账户和会话列表，右侧打开了一封账单邮件" fetchpriority="high"><figcaption>Agentic Mailbox 的收件箱和阅读窗格 · 示例邮件</figcaption></figure>
+</section>
 
     <section class="demo-section" id="demo" aria-labelledby="demo-title">
       <div class="shell demo-grid">
@@ -73,7 +58,8 @@
       </div>
     </section>
 
-    <section class="editions shell" id="editions" aria-labelledby="editions-title">
+    <div class="benefit-statement"><p><span class="benefit-line"><span class="benefit-word">不同账号的来信，</span></span><span class="benefit-line"><span class="benefit-word">回到</span><span class="benefit-word">同一段会话。</span></span></p></div>
+<section class="editions shell" id="editions" aria-labelledby="editions-title">
       <h2 id="editions-title">选一种方式开始</h2>
       <div class="edition-grid">
         <article class="edition">
@@ -89,6 +75,15 @@
       </div>
       <p class="availability"><strong>开发预览</strong>　iOS、Android 和配套 Agent Skill 正在测试。</p>
     </section>
+  <section class="edition-questions" aria-labelledby="mail-questions">
+  <h2 id="mail-questions">安装前想知道的事</h2>
+  <dl>
+    <dt>Mac 上怎么启动？</dt><dd>下载适用于 Apple Silicon 的 ZIP，解压后双击应用。</dd>
+    <dt>回复会从哪个账号发出？</dt><dd>可以使用收到这封邮件的原邮箱回复或转发。</dd>
+    <dt>想先在浏览器试用？</dt><dd><a href="https://mailbox.timmyagentic.si/">打开托管邮箱 ↗</a>，也可以在使用方式中对照两个版本。</dd>
+  </dl>
+  <a class="landing-action" href="https://mailbox.timmyagentic.si/downloads/agentic-mailbox-mac-arm64.zip">下载 Mac Beta <span aria-hidden="true">↗</span></a>
+</section>
   </main>
 
   <footer class="site-footer">
