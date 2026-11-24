@@ -147,8 +147,7 @@ it('refreshes all four connected mailboxes in one click and displays an individu
   vi.mocked(mailboxApi.emails).mockResolvedValue({ emails: [
     { ...email, id: 'older-163', aliasId: '163', aliasAddress: 'owner@163.com', subject: '163 历史邮件' },
   ] });
-  fireEvent.keyDown(screen.getByRole('button', { name: '筛选邮箱' }), { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByText('owner@163.com', { selector: '[data-slot="menu-item"] span, [role^="menuitem"] span' }));
+  fireEvent.change(screen.getByLabelText('筛选邮箱'), { target: { value: '163' } });
   await screen.findByRole('button', { name: /163 历史邮件/ });
   expect(mailboxApi.conversations).toHaveBeenCalledWith(expect.objectContaining({ aliasId: '163' }));
   expect(screen.queryByRole('button', { name: /QQ 新邮件/ })).toBeNull();

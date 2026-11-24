@@ -2541,13 +2541,3 @@ button.mailbox-connect-option:hover {
 .login-form label input { display: block; width: 100%; margin-top: 6px; padding: 10px; }
 
 .login-local-download { display: inline-block; margin-top: 16px; color: var(--teal-strong); }
-
-.login-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; padding:4px; margin:14px 0 19px; border-radius:11px; background:#e6ede9; }
-.login-tabs button { padding:6px 3px; min-height:42px; font-family:inherit; font-weight:600; font-size:14px; line-height:1.4; background:transparent; color:#3a5348; border:0; border-radius:7px; cursor:pointer; }
-.login-tabs button[data-state="active"] { background:#fff; color:#154b38; box-shadow:0 1px 3px #24372e22; }
-.login-tabs button:focus-visible { outline:2px solid #236650; outline-offset:-2px; }
-.login-tab-panel:focus-visible { outline:2px solid #236650; outline-offset:4px; }
-.mail-dialog-overlay { position:fixed; z-index:80; inset:0; background:rgb(12 28 22 / 63%); }
-.modal.mail-dialog { position:fixed; z-index:81; top:50%; left:50%; right:auto; bottom:auto; transform:translate(-50%,-50%); margin:0; max-width:calc(100vw - 20px); max-height:calc(100dvh - 24px); }
-.mail-dialog .modal__header :is(h2,p) { white-space:normal; overflow-wrap:anywhere; }
-@media(max-width:600px) { .modal.mail-dialog { top:auto; bottom:0; left:0; transform:none; width:100%; max-width:100%; max-height:94dvh; } .mail-dialog .modal__surface { border-radius:16px 16px 0 0; padding-bottom:env(safe-area-inset-bottom); } }

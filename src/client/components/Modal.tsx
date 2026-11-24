@@ -1,54 +1,51 @@
-import { type ReactNode } from "react";
-import { Modal as Overlay } from "@heroui/react/modal";
-import { Button } from "@heroui/react/button";
-import { X } from "lucide-react";
-type Props = {
+import { FormButton } from './FormButton';
+import { X } from 'lucide-react';
+import { type ReactNode, useEffect, useId, useRef } from 'react';
+
+type ModalProps = {
   title: string;
   subtitle?: string;
   wide?: boolean;
   children: ReactNode;
   onClose: () => void;
 };
-export function Modal({
-  title,
-  subtitle,
-  wide = false,
-  children,
-  onClose,
-}: Props) {
+
+export function Modal({ title, subtitle, wide = false, children, onClose }: ModalProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    dialogRef.current?.showModal();
+    return () => dialogRef.current?.close();
+  }, []);
+
   return (
-    <Overlay.Backdrop
-      isOpen
-      isDismissable
-      onOpenChange={(open) => {
-        if (!open) onClose();
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      className={`modal ${wide ? 'modal--wide' : ''}`}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
       }}
-      className="mail-dialog-overlay"
+      onClick={(event) => {
+        if (event.target === dialogRef.current) {
+          onClose();
+        }
+      }}
     >
-      <Overlay.Container className="mail-overlay-container">
-        <Overlay.Dialog
-          className={"modal mail-dialog" + (wide ? " modal--wide" : "")}
-          aria-label={title}
-        >
-          <div className="modal__surface">
-            <header className="modal__header">
-              <div>
-                <Overlay.Heading>{title}</Overlay.Heading>
-                {subtitle && <p>{subtitle}</p>}
-              </div>
-              <Button
-                className="mail-icon"
-                type="button"
-                aria-label="关闭"
-                onPress={onClose}
-              >
-                <X size={18} />
-              </Button>
-            </header>
-            <div className="modal__body">{children}</div>
+      <div className="modal__surface">
+        <header className="modal__header">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            {subtitle ? <p>{subtitle}</p> : null}
           </div>
-        </Overlay.Dialog>
-      </Overlay.Container>
-    </Overlay.Backdrop>
+          <FormButton className="icon-button" type="button" onPress={onClose} title="关闭" aria-label="关闭">
+            <X size={18} />
+          </FormButton>
+        </header>
+        <div className="modal__body">{children}</div>
+      </div>
+    </dialog>
   );
 }
