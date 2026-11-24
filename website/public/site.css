@@ -101,16 +101,3 @@ h3 { font-size: 27px; line-height: 1.25; letter-spacing: -.035em; }
   .brand { font-size: 17px; }
   .button { font-size: 14px; padding-inline: 12px; gap: 8px; }
 }
-
-.edition-picker { padding:0; min-width:0; border:0; margin:24px 0 0; }
-.edition-picker legend { margin:0 0 8px; color:#35564b; font-size:14px; font-weight:650; }
-.edition-options { display:flex; flex-wrap:wrap; gap:5px; width:fit-content; max-width:100%; padding:4px; border-radius:12px; background:#e5e9df; }
-.edition-options label { display:flex; align-items:center; gap:8px; padding:8px 12px; min-height:44px; border-radius:8px; cursor:pointer; color:#254236; }
-.edition-options input { accent-color:#205947; width:16px; height:16px; margin:0; }
-.edition-options label:has(:checked) { background:#fcfdf8; color:#183b2c; font-weight:700; }
-.edition-options label:focus-within { outline:2px solid #205947; outline-offset:1px; }
-.edition-picker .edition-grid { display:block; margin:12px 0 0; }
-.edition-picker .edition { padding:17px 0; max-width:60ch; background:transparent; border:0; border-radius:0; }
-.edition-picker .text-link { margin-top:8px; min-height:44px; }
-.edition-picker:has([value=local]:checked) .edition-hosted,
-.edition-picker:has([value=hosted]:checked) .edition-local { display:none; }
