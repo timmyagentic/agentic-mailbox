@@ -1,14 +1,6 @@
 import React, { useState } from "react";
-import {
-  Mail,
-  Monitor,
-  Globe2,
-  Download,
-  ArrowUpRight,
-  FolderLock,
-  Inbox,
-} from "lucide-react";
-import { Action, Choices, Figure, HeroCopy, Mark } from "./ui.jsx";
+import { Monitor, Globe2, Download, ArrowUpRight } from "lucide-react";
+import { Action, Choices, Figure } from "./ui.jsx";
 const hosted = "https://mailbox.timmyagentic.si/";
 const download = hosted + "downloads/agentic-mailbox-mac-arm64.zip";
 export const site = {
@@ -41,48 +33,34 @@ const editions = [
 export function Hero() {
   const [edition, setEdition] = useState("mac");
   return (
-    <section className="pi-hero post-hero">
-      <div className="pi-container">
-        <div className="post-heading">
-          <HeroCopy
-            mark={<Mark Icon={Mail}>Agentic Mailbox</Mark>}
-            title={
-              <>
-                多个邮箱，
-                <br />
-                一个收件箱。
-              </>
-            }
-            description="把 QQ、163、Gmail 和 Outlook 放进同一个收件箱。按会话查信，再用原邮箱回复。"
-          />
-          <div className="post-editions">
-            <Choices
-              label="选择使用方式"
-              tabs={editions}
-              value={edition}
-              onChange={setEdition}
-            >
-              {(item) => (
-                <div className="post-download">
-                  <p>{item.detail}</p>
-                  <Action
-                    href={item.href}
-                    icon={item.id === "mac" ? Download : ArrowUpRight}
-                  >
-                    {item.action}
-                  </Action>
-                </div>
-              )}
-            </Choices>
-          </div>
+    <section className="pi-hero post-hero" aria-labelledby="hero-title">
+      <div className="pi-container post-spread">
+        <div className="post-details">
+          <h1 id="hero-title">Agentic Mailbox</h1>
+          <p>
+            把 QQ、163、Gmail 和 Outlook
+            的邮件放在一起，按会话阅读，用原邮箱回复。
+          </p>
+          <Choices
+            label="选择使用方式"
+            tabs={editions}
+            value={edition}
+            onChange={setEdition}
+          >
+            {(item) => (
+              <div className="post-download">
+                <Action
+                  href={item.href}
+                  icon={item.id === "mac" ? Download : ArrowUpRight}
+                >
+                  {item.action}
+                </Action>
+                <p>{item.detail}</p>
+              </div>
+            )}
+          </Choices>
         </div>
-        <div className="post-window">
-          <div className="post-window-header">
-            <span>
-              <Inbox size={19} /> 统一收件箱
-            </span>
-            <small>实际界面 · 示例邮件</small>
-          </div>
+        <figure className="post-sample">
           <Figure
             src="/assets/mailbox-inbox.webp"
             width={1344}
@@ -91,7 +69,10 @@ export function Hero() {
             title="统一收件箱"
             priority
           />
-        </div>
+          <figcaption>
+            收件箱里的一个会话<span>示例邮件</span>
+          </figcaption>
+        </figure>
       </div>
     </section>
   );

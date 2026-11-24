@@ -11,7 +11,6 @@ import {
   EyeOff,
   Inbox,
   LockKeyhole,
-  Mail,
   ShieldCheck,
 } from "lucide-react";
 type Mode = "member" | "register" | "admin";
@@ -166,29 +165,8 @@ export function LoginView({
           <small>{local ? "Mac 本地版" : "托管工作台"}</small>
         </div>
         <div className="mail-entry-layout">
-          <section className="mail-entry-intro">
-            <h1>{local ? "你的本地收件箱。" : <>一个空间，<br />收齐所有来信。</>}</h1>
-            <p>
-              {local
-                ? "在这台 Mac 管理邮件、附件和账号。"
-                : "连接邮箱后，可以按会话阅读、回复和保存草稿。每个账号独立管理自己的邮件与附件。"}
-            </p>
-            <div className="mail-entry-providers" aria-label="支持的邮箱">
-              {["QQ 邮箱", "网易 163", "Gmail", "Outlook"].map((name) => (
-                <span key={name}>
-                  <Mail size={14} />
-                  {name}
-                </span>
-              ))}
-            </div>
-            {!local && (
-              <a href="https://agentic-mailbox.timmyagentic.si/">
-                查看产品介绍 <ArrowRight size={15} />
-              </a>
-            )}
-          </section>
           <section className="mail-entry-card" aria-labelledby="login-title">
-            <h2 id="login-title">{heading}</h2>
+            <h1 id="login-title">{heading}</h1>
             <p>
               {member
                 ? "使用个人账号进入自己的收件箱。"
@@ -234,6 +212,14 @@ export function LoginView({
               >
                 <ArrowDownToLine size={15} />
                 下载 Mac 本地版
+              </a>
+            )}
+            {!local && (
+              <a
+                className="mail-entry-product"
+                href="https://agentic-mailbox.timmyagentic.si/"
+              >
+                产品介绍 <ArrowRight size={15} />
               </a>
             )}
           </section>
