@@ -1,9 +1,3 @@
-# Agentic Mailbox product site
+# Website
 
-This directory contains the static product page at agentic-mailbox.timmyagentic.si. The download and workbench links point to the independently deployed mailbox app. The screen capture uses a local fixture of the mailbox UI with example mail and the Agentic Mailbox Skill.
-
-Deploy from the repository root with the project's Wrangler CLI.
-
-```sh
-npx --no-install wrangler deploy --config website/wrangler.jsonc
-```
+[agentic-mailbox.timmyagentic.si](https://agentic-mailbox.timmyagentic.si/) is maintained and deployed from [personal-hub/sites/agentic-mailbox](https://github.com/timmyagentic/personal-hub/tree/main/sites/agentic-mailbox). Use that directory for changes to the live site. Product source and releases remain here.

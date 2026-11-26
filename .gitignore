@@ -10,3 +10,5 @@ worker-configuration.d.ts
 playwright-report/
 test-results/
 outputs/
+
+wrangler.self-hosted.jsonc
