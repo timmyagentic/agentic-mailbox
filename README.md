@@ -1,5 +1,7 @@
 # Agentic Mailbox
 
+Hosted web app · [personal-hub/apps/agentic-mailbox](https://github.com/timmyagentic/personal-hub/tree/main/apps/agentic-mailbox). For a self-hosted deployment, copy `wrangler.jsonc` to `wrangler.self-hosted.jsonc` and configure your own Worker name, domain, resource bindings and secrets. The checked-in configuration is for local development.
+
 Agentic Mailbox is a private Cloudflare-native inbox for managed aliases on `emomo.net` and connected QQ, NetEase 163, Gmail and Outlook mailboxes. It stores mail metadata and text in D1 and attachments in private R2 storage.
 
 ## Run locally
@@ -121,34 +123,19 @@ curl --request POST 'http://localhost:8787/cdn-cgi/handler/email' \
 
 Push a version tag such as `v0.1.0` or `v0.1.0-beta.1` on a commit in main. [GitHub Actions](https://github.com/timmyagentic/agentic-mailbox/actions/workflows/ci.yml) runs the full checks, builds and launches the packaged Apple Silicon edition, then publishes `agentic-mailbox-mac-arm64.zip` and `SHA256SUMS` to [GitHub Releases](https://github.com/timmyagentic/agentic-mailbox/releases). Tags with a prerelease suffix create prereleases. The hosted Worker and its R2 download are deployed separately.
 
-## Production resources
+## Self-hosted resources
 
-The checked-in Wrangler configuration binds these isolated resources:
+Copy `wrangler.jsonc` to `wrangler.self-hosted.jsonc`. Configure a Worker name, your own domain, D1 and R2 bindings, email destination and OAuth origin. Set secrets and run migrations using that same configuration.
 
-| Resource | Name |
-| --- | --- |
-| Worker | `agentic-mailbox` |
-| Custom domain | `mailbox.timmyagentic.si` |
-| D1 | `mailbox-vault` |
-| R2 | `mailbox-vault-attachments` |
-| Inbound domain | `emomo.net` |
-
-Production secrets are set with Wrangler and are never committed:
-
-```bash
-npx wrangler secret put ADMIN_PASSWORD
-npx wrangler secret put SESSION_SECRET
-npx wrangler secret put MAIL_ACCOUNT_KEY
-```
-
-Apply migrations and deploy:
-
-```bash
+```sh
+npx wrangler secret put ADMIN_PASSWORD --config wrangler.self-hosted.jsonc
+npx wrangler secret put SESSION_SECRET --config wrangler.self-hosted.jsonc
+npx wrangler secret put MAIL_ACCOUNT_KEY --config wrangler.self-hosted.jsonc
 npm run db:migrate:remote
-npm run deploy
+npm run deploy:self-hosted
 ```
 
-After deployment, point the `emomo.net` Email Routing catch-all rule at the `agentic-mailbox` Worker. Explicit aliases such as existing Gmail forwarding rules continue to take precedence.
+Attach Email Routing for your domain to your Worker. Custom-domain bots can receive mail as soon as this routing is configured.
 
 ## Security model
 

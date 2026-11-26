@@ -1,8 +1,0 @@
-{
-  "name": "agentic-mailbox-site",
-  "compatibility_date": "2026-11-22",
-  "workers_dev": false,
-  "preview_urls": false,
-  "assets": { "directory": "./public" },
-  "routes": [{ "pattern": "agentic-mailbox.timmyagentic.si", "custom_domain": true }]
-}
