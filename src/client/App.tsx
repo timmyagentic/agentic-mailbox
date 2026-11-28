@@ -59,7 +59,7 @@ export default function App() {
     catch (e) { setError((e as Error).message); }
   }
   return <>
-    <header><div className="bar"><span className="brand"><span className="mark" aria-hidden="true">↗</span>Agentic Mailbox</span>
+    <header><div className="bar"><span className="brand"><span className="mark" aria-hidden="true">↗</span>OpenPostway</span>
       {session?.authenticated && <button className="link" onClick={() => void logout()}>退出登录</button>}</div></header>
     {error && <div className="notice" role="alert">{error} <button onClick={() => void refresh().catch(e => setError(e.message))}>重新连接</button></div>}
     {session?.authenticated ? <Forwarding admin={Boolean(session.admin)} /> :

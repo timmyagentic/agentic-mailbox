@@ -63,6 +63,6 @@ jobs:
           git fetch --no-tags origin "refs/tags/$tag"
           test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$(git rev-parse HEAD)"
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --verify-tag --title "Agentic Mailbox $tag" --generate-notes --prerelease="$PRERELEASE"
+            gh release create "$tag" --verify-tag --title "OpenPostway $tag" --generate-notes --prerelease="$PRERELEASE"
           fi
           test "$(gh release view "$tag" --json isDraft,isPrerelease --jq '[.isDraft,.isPrerelease]|join(",")')" = "false,$PRERELEASE"

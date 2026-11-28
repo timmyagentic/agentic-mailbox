@@ -1,8 +1,8 @@
-# Agentic Mailbox
+# OpenPostway
 
-Agentic Mailbox forwards new mail to one mailbox you choose. Read, search and reply in your usual mail app. Each account gets a stable relay address, so changing the destination updates every source that forwards to that relay.
+OpenPostway forwards new mail to one mailbox you choose. Read, search and reply in your usual mail app. Each account gets a stable relay address, so changing the destination updates every source that forwards to that relay.
 
-[Open forwarding settings](https://mailbox.timmyagentic.si/) · [Product site](https://agentic-mailbox.timmyagentic.si/)
+[Open forwarding settings](https://mailbox.timmyagentic.si/) · [Product site](https://openpostway.timmyagentic.si/)
 
 ## Set up forwarding
 
@@ -41,11 +41,13 @@ For local development, copy `.dev.vars.example` to `.dev.vars` and set an admini
 
 ## Codex plugin
 
-The optional plugin manages forwarding settings and aliases. Install the repository marketplace and plugin, then sign in to your instance using the bundled CLI. [Forwarding skill](plugins/agentic-mailbox/skills/agentic-mailbox/SKILL.md)
+The optional plugin manages forwarding settings and aliases. Install the repository marketplace and plugin, then sign in to your instance using the bundled CLI. [Forwarding skill](plugins/open-postway/skills/open-postway/SKILL.md)
 
 ```sh
-codex plugin marketplace add timmyagentic/agentic-mailbox
-codex plugin add agentic-mailbox@agentic-mailbox-tools
+codex plugin marketplace add timmyagentic/open-postway
+codex plugin add open-postway@open-postway-tools
 ```
+
+When switching from the Agentic Mailbox plugin, install OpenPostway first. Its CLI reuses existing profiles and accepts both `OPEN_POSTWAY_SESSION_FILE` and the earlier `AGENTIC_MAILBOX_SESSION_FILE` override. After verifying your profiles, the old plugin can be removed with `codex plugin remove agentic-mailbox@agentic-mailbox-tools`.
 
 The hosted Worker and product site are maintained in [personal-hub](https://github.com/timmyagentic/personal-hub). Version tags publish source releases. See [diagnostics](docs/diagnostics.md) for troubleshooting and [LICENSE](LICENSE) for the license.

@@ -13,7 +13,7 @@ async function health(env: Env): Promise<Response> {
     await env.DB.prepare('SELECT 1').first();
     return json({
       ok: true,
-      service: 'agentic-mailbox',
+      service: 'open-postway',
       dependencies: { database: 'ready' },
       timestamp: new Date().toISOString(),
     });
@@ -21,7 +21,7 @@ async function health(env: Env): Promise<Response> {
     return json(
       {
         ok: false,
-        service: 'agentic-mailbox',
+        service: 'open-postway',
         dependencies: { database: 'unavailable' },
         timestamp: new Date().toISOString(),
       },

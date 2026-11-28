@@ -46,7 +46,7 @@
     }
   ],
   "vars": {
-    "APP_NAME": "Agentic Mailbox",
+    "APP_NAME": "OpenPostway",
     "PRIMARY_DOMAIN": "example.invalid",
     "ADMIN_EMAIL": "owner@example.invalid"
   },

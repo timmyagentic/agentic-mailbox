@@ -1,14 +1,14 @@
 {
-  "name": "agentic-mailbox-tools",
+  "name": "open-postway-tools",
   "interface": {
-    "displayName": "Agentic Mailbox"
+    "displayName": "OpenPostway"
   },
   "plugins": [
     {
-      "name": "agentic-mailbox",
+      "name": "open-postway",
       "source": {
         "source": "local",
-        "path": "./plugins/agentic-mailbox"
+        "path": "./plugins/open-postway"
       },
       "policy": {
         "installation": "AVAILABLE",

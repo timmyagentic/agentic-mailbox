@@ -91,7 +91,7 @@ export async function verifyDestination(env: Env, owner: string, target: unknown
     if (claim.meta.changes) {
       try {
         await env.EMAIL.send({ from: `forwarding@${env.PRIMARY_DOMAIN}`, to: row.pending,
-          subject: '确认 Agentic Mailbox 转发目标', text: `确认码为 ${code}，15 分钟内有效。请在发起设置的页面输入。如果你没有请求转发，可以忽略这封信。` });
+          subject: '确认 OpenPostway 转发目标', text: `确认码为 ${code}，15 分钟内有效。请在发起设置的页面输入。如果你没有请求转发，可以忽略这封信。` });
       } catch {
         await env.DB.prepare('UPDATE forwarding_settings SET code_hash = NULL, code_sent_at = NULL WHERE owner = ? AND code_hash = ?')
           .bind(owner, hash).run();
