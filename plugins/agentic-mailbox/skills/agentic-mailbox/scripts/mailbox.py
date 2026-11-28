@@ -44,7 +44,11 @@ def origin_for(value):
 
 
 def request(origin, path, *, data=None, method=None, cookie=None):
-    headers = {"Accept": "application/json", "Origin": origin}
+    headers = {
+        "Accept": "application/json",
+        "Origin": origin,
+        "User-Agent": "Agentic-Mailbox/0.2 (https://github.com/timmyagentic/agentic-mailbox)",
+    }
     if data is not None:
         headers["Content-Type"] = "application/json"
     if cookie:
