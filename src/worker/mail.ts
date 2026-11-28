@@ -1,5 +1,6 @@
 import { normalizeAddress } from '../shared/validation';
 import { destinationAddress, legacyDestination } from './forwarding';
+import { resendEmail } from './resend';
 import { logEvent } from './logging';
 import type { EmailWorkerMessage, Env } from './types';
 
@@ -18,17 +19,26 @@ export async function forwardEmail(message: EmailWorkerMessage, env: Env): Promi
   }
   try {
     // Before an administrator first visits settings, existing aliases still use the operator's destination.
-    const route = await env.DB.prepare(`SELECT destination FROM forwarding_settings WHERE relay = ?1
-      UNION ALL SELECT COALESCE((SELECT destination FROM forwarding_settings WHERE owner = 'admin'), ?2)
-      FROM aliases WHERE address = ?1 AND routing_mode = 'managed' AND status = 'active' LIMIT 1`)
-      .bind(recipient, legacyDestination(env)).first<{ destination: string | null }>();
+    const route = await env.DB.prepare(`SELECT relay, sender_name, destination FROM forwarding_settings WHERE relay = ?1
+      UNION ALL SELECT s.relay, s.sender_name, COALESCE(s.destination, ?2) FROM aliases a
+      LEFT JOIN forwarding_settings s ON s.owner = 'admin'
+      WHERE a.address = ?1 AND a.routing_mode = 'managed' AND a.status = 'active' LIMIT 1`)
+      .bind(recipient, legacyDestination(env)).first<{ relay: string | null; sender_name: string | null; destination: string | null }>();
     if (!route) return reject('Mailbox is not registered or is disabled');
     const target = destinationAddress(env, route.destination);
     if (!target) return reject('Mailbox has no active forwarding destination');
+    if (route.sender_name && route.relay) {
+      await resendEmail(message, env, { name: route.sender_name, email: route.relay }, target, recipient);
+      logEvent('info', { event: 'email_resent', processingId });
+      return;
+    }
     await message.forward(target, new Headers({ 'X-Agentic-Mailbox-Relay': domain, 'X-Agentic-Mailbox-Original-To': recipient }));
     logEvent('info', { event: 'email_forwarded', processingId });
-  } catch {
-    logEvent('error', { event: 'email_forward_failed', processingId });
+  } catch (error) {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    const providerCode = typeof code === 'string' && /^E_[A-Z_0-9]{1,64}$/.test(code) ? code : undefined;
+    logEvent('error', { event: 'email_forward_failed', processingId, providerCode });
+    // eslint-disable-next-line preserve-caught-error -- Cloudflare logs thrown causes, which may contain private mail data.
     throw new Error(`Email forwarding failed (${processingId})`);
   }
 }

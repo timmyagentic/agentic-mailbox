@@ -24,6 +24,17 @@ export function normalizeAddress(value: string): string | null {
   return `${localPart}@${domain}`;
 }
 
+// An Internet mailbox used in a message header or as an Email Service destination.
+export function internetMailbox(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const address = value.trim();
+  const [local, domain, extra] = address.split('@');
+  if (extra !== undefined || !domain?.includes('.') || address.length > 254 || local.length > 64
+    || !/^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/i.test(local)
+    || !domain.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))) return null;
+  return address;
+}
+
 export function slugifyPurpose(value: string): string {
   const slug = value
     .trim()

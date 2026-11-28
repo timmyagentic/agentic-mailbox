@@ -76,6 +76,11 @@ try {
   assert.equal((await api('/api/forwarding/confirm', bob, 'POST', { code })).status, 400);
   assert.equal((await api('/api/forwarding/confirm', alice, 'POST', { code })).status, 200);
   assert.equal((await settings(alice)).destination, target);
+  const senderChange = await api('/api/forwarding/sender', alice, 'PUT', { name: 'Relay Assistant', owner: 'admin' });
+  assert.equal(senderChange.status, 200, await senderChange.clone().text());
+  assert.equal((await senderChange.json()).senderName, 'Relay Assistant');
+  assert.equal((await settings(bob)).senderName, null);
+  assert.equal((await settings(admin)).senderName, null);
   const envelope = new URL('/cdn-cgi/handler/email', origin);
   envelope.searchParams.set('from', 'sender@example.net');
   envelope.searchParams.set('to', a.relay);
@@ -86,13 +91,19 @@ try {
     'Content-Transfer-Encoding: base64', '', 'AAECA/8=', '--fixture--', ''].join('\r\n');
   const delivery = await runtime.dispatchFetch(envelope.toString(), { method: 'POST', body: eml });
   assert.equal(delivery.status, 200, await delivery.text());
+  const artifacts = await readdir(temp, { recursive: true });
+  const textParts = artifacts.filter(path => path.endsWith('.txt') && path !== savedText);
+  assert.ok((await Promise.all(textParts.map(path => readFile(join(temp, path), 'utf8')))).some(text => text.includes('Hello from the source mailbox.')));
+  const attachment = artifacts.find(path => path.endsWith('.bin') && path.includes('email-attachment'));
+  assert.ok(attachment, 'relay message includes the original attachment');
+  assert.deepEqual(await readFile(join(temp, attachment)), Buffer.from([0, 1, 2, 3, 255]));
   envelope.searchParams.set('to', 'unknown@mail.example');
   assert.equal((await runtime.dispatchFetch(envelope.toString(), { method: 'POST', body: eml })).status, 400);
   assert.equal((await db.prepare('SELECT count(*) AS count FROM emails').first()).count, 0);
   assert.equal((await api('/api/drafts', admin)).status, 404);
   assert.equal((await api('/downloads/agentic-mailbox-mac-arm64.zip')).status, 410);
   assert.equal((await api('/api/session', alice, 'DELETE')).status, 200);
-  console.log('Verified migration, hosted identities, durable relay addresses, pending destination isolation, confirmed cutover, multipart email event, protected APIs and retired downloads.');
+  console.log('Verified migration, hosted identities, durable relay addresses, pending destination isolation, confirmed cutover, relay sender identity, multipart body and attachment bytes, protected APIs and retired downloads.');
 } finally {
   await runtime.dispose();
   await rm(temp, { recursive: true, force: true });

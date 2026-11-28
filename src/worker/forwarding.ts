@@ -1,3 +1,4 @@
+import { internetMailbox } from '../shared/validation';
 import type { ForwardingSettings } from '../shared/types';
 import { ensureRoutingAddress } from './destinations';
 import { HttpError } from './http';
@@ -7,19 +8,13 @@ const codeLifetime = 15 * 60_000;
 const resendDelay = 60_000;
 
 type SettingsRow = {
-  relay: string; destination: string | null; pending: string | null;
+  relay: string; sender_name: string | null; destination: string | null; pending: string | null;
   pending_id: string | null; code_hash: string | null; code_sent_at: number | null;
 };
 
 export function destinationAddress(env: Env, value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const address = value.trim().toLowerCase();
-  if (address.length > 90) return null;
-  const [local, domain, extra] = address.split('@');
-  if (extra !== undefined || !domain?.includes('.') || local.length > 64
-    || !/^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/.test(local)
-    || domain === env.PRIMARY_DOMAIN.trim().toLowerCase() || domain.endsWith('.invalid')
-    || !domain.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
+  const address = internetMailbox(value)?.toLowerCase();
+  if (!address || address.length > 90 || address.endsWith('@' + env.PRIMARY_DOMAIN.trim().toLowerCase()) || address.endsWith('.invalid')) return null;
   return address;
 }
 
@@ -42,12 +37,23 @@ async function settingsRow(env: Env, owner: string): Promise<SettingsRow> {
 
 function publicSettings(row: SettingsRow): ForwardingSettings {
   const validCode = row.code_hash && (row.code_sent_at ?? 0) + codeLifetime > Date.now();
-  return { relay: row.relay, destination: row.destination, pending: row.pending,
+  return { relay: row.relay, senderName: row.sender_name, destination: row.destination, pending: row.pending,
     step: row.pending ? (validCode ? 'code' : 'provider') : null };
 }
 
 export async function getSettings(env: Env, owner: string) {
   return publicSettings(await settingsRow(env, owner));
+}
+
+export async function setRelaySenderName(env: Env, owner: string, value: unknown) {
+  if (value !== null && (typeof value !== 'string' || !value.trim() || value.trim().length > 80
+    || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(value))) {
+    throw new HttpError(400, 'invalid_sender_name', '请输入 1 至 80 个字符的单行发件人名称。');
+  }
+  await settingsRow(env, owner);
+  await env.DB.prepare('UPDATE forwarding_settings SET sender_name = ? WHERE owner = ?')
+    .bind(typeof value === 'string' ? value.trim() : null, owner).run();
+  return getSettings(env, owner);
 }
 
 async function codeHash(code: string) {

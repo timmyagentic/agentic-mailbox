@@ -1,6 +1,6 @@
 # Forwarding diagnostics
 
-The Worker records an opaque processing ID for `email_forwarded`, `email_rejected` and `email_forward_failed`. A forwarded event means the Cloudflare forwarding call succeeded. Final inbox placement belongs to the destination provider. Application logs omit message content, confirmation codes and addresses.
+The Worker records an opaque processing ID for `email_forwarded`, `email_resent`, `email_rejected` and `email_forward_failed`. The first two indicate that Cloudflare accepted native forwarding or a new message from the relay, respectively. Final inbox placement belongs to the destination provider. Application logs omit message content, confirmation codes and addresses.
 
 For missing mail, first check that the source provider has enabled its forwarding rule and that its verification step has finished. Check the destination's spam folder and Cloudflare Email Routing activity. For domain mail, check the SMTP envelope recipient, exact alias status, effective routing rule and active destination. An unrecognized, disabled or unconfigured address is rejected. A forwarding transport or database failure fails the email event.
 

@@ -49,7 +49,9 @@ export default function Forwarding({ admin }: { admin: boolean }) {
     setBusy(true); setError(''); setNotice('');
     try {
       const next = await api<ForwardingSettings>('/api/forwarding/' + path, { method, body: JSON.stringify(body) });
-      setSettings(next); setCode(''); setAddress('');
+      setSettings(next);
+      if (path === 'sender') setNotice('发件人身份已保存。');
+      else { setCode(''); setAddress(''); }
       if (path === 'confirm') setNotice('目标邮箱已启用，新来信将转发到这里。');
       if (method === 'DELETE') setNotice('已取消此次更换。');
       if (path === 'verify' && next.step === 'provider') setNotice('Cloudflare 尚未确认。请先打开目标邮箱中的验证链接。');
@@ -87,6 +89,19 @@ export default function Forwarding({ admin }: { admin: boolean }) {
               required maxLength={90} value={address} onChange={e => setAddress(e.target.value)} />
               <button className="primary">验证邮箱</button></div>
           </form>}
+          <details>
+            <summary>{settings.senderName ? `代发身份 · ${settings.senderName}` : '设置代发身份'}</summary>
+            <p>填写名称后，服务会用 <strong>{settings.relay}</strong> 给目标邮箱重新寄信。留空并保存可恢复原样转发。</p>
+            <form onSubmit={e => {
+              e.preventDefault();
+              const name = String(new FormData(e.currentTarget).get('name') ?? '').trim();
+              void change('sender', 'PUT', { name: name || null });
+            }}>
+              <label htmlFor="relay-sender">发件人显示名</label>
+              <div className="row"><input key={settings.senderName ?? ''} id="relay-sender" name="name" maxLength={80}
+                defaultValue={settings.senderName ?? ''} /><button>保存发件人</button></div>
+            </form>
+          </details>
         </fieldset>
       </>}
       {busy && <p role="status">正在处理…</p>}

@@ -1,6 +1,6 @@
 import { clearedSessionCookies, createSessionToken, getSession, passwordsMatch, sessionCookie, verifiedClientFingerprint } from './auth';
 import { createAlias, listAliases, updateAlias } from './db';
-import { cancelPending, confirmDestination, getSettings, requestDestination, verifyDestination } from './forwarding';
+import { cancelPending, confirmDestination, getSettings, requestDestination, setRelaySenderName, verifyDestination } from './forwarding';
 import { assertSameOrigin, HttpError, json, parseLimit, readJson } from './http';
 import { memberUsername, routeMember } from './members';
 import { legacySources } from './sources';
@@ -106,6 +106,10 @@ export async function handleApi(request: Request, env: Env): Promise<Response> {
   const owner = username ? 'member:' + username : 'admin';
   if (method !== 'GET') assertSameOrigin(request);
   if (path === '/api/forwarding' && method === 'GET') return json(await getSettings(env, owner));
+  if (path === '/api/forwarding/sender' && method === 'PUT') {
+    const body = await readJson<{ name?: unknown }>(request);
+    return json(await setRelaySenderName(env, owner, body?.name));
+  }
   if (path === '/api/forwarding/sources' && method === 'GET') return json({ sources: await legacySources(env, username) });
   if (path === '/api/forwarding/destination' && method === 'DELETE') {
     await readJson(request);
