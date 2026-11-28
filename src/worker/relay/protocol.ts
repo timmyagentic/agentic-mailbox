@@ -45,6 +45,7 @@ export async function withInbox<T>(
   p: MailboxProfile,
   auth: MailAuth,
   use: (client: ImapFlow, validity: string) => Promise<T>,
+  signal?: AbortSignal,
 ) {
   const { connect } = await import('cloudflare:sockets');
   const client = new ImapFlow({
@@ -68,9 +69,12 @@ export async function withInbox<T>(
     clientInfo: { name: 'OpenPostway' },
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
-    socketTimeout: 30_000,
+    socketTimeout: signal ? 7 * 60_000 : 30_000,
   });
   client.on('error', () => {});
+  const close = () => client.close();
+  signal?.throwIfAborted();
+  signal?.addEventListener('abort', close, { once: true });
   try {
     await client.connect();
     if (
@@ -86,6 +90,7 @@ export async function withInbox<T>(
     if (!box.uidValidity) throw new RelayFailure('imap');
     return await use(client, String(box.uidValidity));
   } finally {
+    signal?.removeEventListener('abort', close);
     client.close();
   }
 }
@@ -100,9 +105,11 @@ export async function latestUid(client: ImapFlow) {
   return newest.uid;
 }
 
-export async function upcoming(client: ImapFlow, after: number) {
+export async function upcoming(client: ImapFlow, after: number, probeEmpty = false) {
   const box = client.mailbox;
-  if (!box || !box.exists || (box.uidNext && box.uidNext <= after + 1)) return [];
+  if (!box || !client.usable) throw new RelayFailure('imap');
+  if (!box.exists && !probeEmpty) return [];
+  // EXISTS updates the count, but does not carry a fresh UIDNEXT on a live connection.
   // Fetch metadata separately; issuing nested FETCHes inside an ImapFlow iterator deadlocks.
   const uids: number[] = [];
   for await (const item of client.fetch(String(after + 1) + ':*', { uid: true }, { uid: true })) {
@@ -123,7 +130,10 @@ export async function readNewMail(client: ImapFlow, uid: number, p: MailboxProfi
     { source: { maxLength: maxBytes + 1 }, size: true },
     { uid: true },
   );
-  if (!item) return null; // Expunged between listing and reading.
+  if (!item) {
+    if (!client.usable) throw new RelayFailure('imap');
+    return null; // Expunged between listing and reading on a healthy connection.
+  }
   if ((item.size ?? 0) > maxBytes || (item.source?.length ?? 0) > maxBytes)
     throw new RelayFailure('oversize');
   if (!item.source?.length || (item.size !== undefined && item.source.length < item.size))

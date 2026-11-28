@@ -5,6 +5,7 @@ import { type RelayEnv } from './relay/profile';
 import { RelayFailure } from './relay/protocol';
 import { confirmSetup, startSetup, status } from './relay/store';
 import { resolveMail, syncMailbox } from './relay/sync';
+import { runMailboxSegment } from './relay/listener';
 
 async function handle(request: Request, env: RelayEnv) {
   const path = new URL(request.url).pathname;
@@ -49,7 +50,7 @@ export default {
       return withSecurityHeaders(apiError(safe, crypto.randomUUID()));
     }
   },
-  async scheduled(_event: ScheduledController, env: RelayEnv) {
-    await syncMailbox(env);
+  async scheduled(event: ScheduledController, env: RelayEnv) {
+    await runMailboxSegment(env, event.scheduledTime);
   },
 } satisfies ExportedHandler<RelayEnv>;

@@ -15,6 +15,11 @@ const providers: Record<Provider, string> = {
   '163': '网易 163',
   custom: '其他邮箱 / 自有域名邮箱',
 };
+const listening = {
+  idle: '正在监听来信 · IMAP IDLE',
+  poll: '正在检查来信 · 每 10 秒',
+  connecting: '正在连接收件箱',
+};
 const issues: Record<RelayIssue, string> = {
   imap: '读取收件箱失败。请检查 IMAP 服务和授权，下一次检查会重试。',
   oauth: 'Google 授权已失效，请重新授权后再检查。',
@@ -247,6 +252,7 @@ export default function MailboxRelay() {
           <p className="mail-path">
             <strong>{route.profile.address}</strong> → <strong>{route.profile.destination}</strong>
           </p>
+          <p>{route.listener ? listening[route.listener] : '等待监听任务启动'}</p>
           {route.checkedAt && <p>上次检查 {new Date(route.checkedAt).toLocaleString()}</p>}
           {route.sentAt && <p>上次成功代发 {new Date(route.sentAt).toLocaleString()}</p>}
           {route.issue && (

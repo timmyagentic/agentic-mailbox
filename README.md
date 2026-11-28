@@ -6,7 +6,7 @@ OpenPostway collects new mail from a mailbox you own and re-sends it to the inbo
 
 ## Self-host
 
-The default installation runs a single administrator's IMAP/SMTP relay on Cloudflare Workers. It uses one Worker with static assets, one D1 database and a Cron Trigger every five minutes. The settings page uses a workers.dev URL. Your existing mailbox supplies both incoming and outgoing mail. Gmail, QQ and NetEase 163 have presets. Other providers, including mailboxes on your own domain, support custom servers.
+The default installation runs a single administrator's IMAP/SMTP relay on Cloudflare Workers. It uses one Worker with static assets, one D1 database and a once-a-minute Cron Trigger that supervises overlapping IMAP connections. A mailbox offering IMAP IDLE announces new mail over its connection. Other mailboxes are checked every ten seconds on the same connection. The settings page uses a workers.dev URL. Your existing mailbox supplies both incoming and outgoing mail. Gmail, QQ and NetEase 163 have presets. Other providers, including mailboxes on your own domain, support custom servers.
 
 ### 1. Deploy your instance
 
@@ -36,7 +36,7 @@ openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --config wrangl
 openssl rand -base64 32 | npx wrangler secret put MAIL_ACCOUNT_KEY --config wrangler.self-hosted.jsonc
 ```
 
-Keep the same Worker, local configuration, D1 database and secrets for upgrades. Run `npm ci`, `npm run db:migrate:remote`, then `npm run deploy:self-hosted` on the updated checkout. Replacing the encryption key requires reconnecting the mailbox.
+For an existing IMAP installation, keep its Worker, D1 database and secrets. In your local `wrangler.self-hosted.jsonc`, change the old `*/5 * * * *` trigger to `* * * * *`. Apply D1 migrations before deploying the new Worker. Run `npm ci`, `npm run db:migrate:remote`, then `npm run deploy:self-hosted` on the updated checkout. Replacing the encryption key requires reconnecting the mailbox.
 
 ### 2. Connect a mailbox
 
@@ -60,10 +60,10 @@ Open the printed Google link **on that computer**, authorize the relay account, 
 ### 3. Receive the first relayed message
 
 1. After activation, send a **new** message from a third address to your **relay mailbox**. Give it a distinct subject and attach a small file. Send only to the relay.
-2. Click **立即检查新信** in your instance or wait for its five-minute schedule. Newly deployed Cloudflare schedules can take several minutes to propagate.
+2. Open the settings page and check the receiving mode. **IMAP IDLE** means new-mail announcements trigger delivery. **每 10 秒** means the mailbox uses a ten-second check while connected. You can also click **立即检查新信** for an immediate manual check. New Cloudflare Cron configurations can take several minutes to propagate.
 3. Open the target mailbox, including spam if needed. Check the From address and display name, the single To recipient, the Reply-To address and the attachment. Send future source mail to the same relay, or configure automatic forwarding at other source providers.
 
-The initial connection records the current end of INBOX. Mail received after that point is eligible once the destination is confirmed. The relay preserves source read flags, processes up to ten new mails per check, and stores only encrypted credentials, configuration and processing state in D1. SMTP acceptance is visible in settings. If an acknowledgment is lost, check the destination before choosing to retry or skip. Mail above 12 MiB of source MIME or a changed IMAP UID validity appears in settings for an explicit decision. [Troubleshooting](docs/diagnostics.md)
+The initial connection records the current end of INBOX. Mail received after that point is eligible once the destination is confirmed. The relay preserves source read flags and stores encrypted credentials, configuration and processing state in D1. Each listener catches up from the committed IMAP UID, including messages received during a disconnect. A new listener is eligible every five minutes. The predecessor stays available for up to 90 seconds beyond the nominal boundary, covering the seconds offset of the minute trigger and connection setup. The outgoing delivery claim is shared by old and new listeners and manual checks. A bounded invocation can yield early on heavy traffic, and the minute supervisor resumes the backlog. Connection failures, SMTP delays or a backlog can increase delivery time. SMTP acceptance is visible in settings. If the receiving SMTP server accepts a message and its final acknowledgment is lost, the relay pauses that UID. Check the destination and skip an already received message. Explicitly retrying an ambiguous submission can send a second copy. Mail above 12 MiB of source MIME or a changed IMAP UID validity appears in settings for an explicit decision. [Troubleshooting](docs/diagnostics.md)
 
 ## Optional Cloudflare domain routing
 

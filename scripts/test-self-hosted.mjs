@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer as tlsServer, createSecureContext, TLSSocket } from 'node:tls';
@@ -21,6 +21,20 @@ const password = randomUUID(),
 const inbox = [],
   delivered = [],
   commands = [];
+let supportsIdle = false,
+  refuseIdle = false,
+  unavailableUntil = 0,
+  dropBody = false,
+  holdReceipt;
+const imapClients = new Map();
+const scans = [];
+let connections = 0;
+function addMail(raw) {
+  inbox.push(raw);
+  for (const [socket, state] of imapClients) {
+    if (state.idleTag) socket.write('* ' + inbox.length + ' EXISTS\r\n');
+  }
+}
 const servers = [],
   sockets = new Set();
 let runtime,
@@ -77,20 +91,43 @@ function listen(tls, onClient, upgrade = false) {
   });
 }
 function imap(socket, greet) {
+  const state = { id: ++connections, idleTag: '', loggedIn: false };
+  imapClients.set(socket, state);
+  socket.once('close', () => imapClients.delete(socket));
+  if (Date.now() < unavailableUntil) {
+    socket.destroy();
+    return () => {};
+  }
   if (greet) socket.write('* OK OpenPostway fixture\r\n');
   return (line) => {
+    if (line === 'DONE') {
+      socket.write(state.idleTag + ' OK idle ended\r\n');
+      state.idleTag = '';
+      return;
+    }
     const [tag, verb, ...args] = line.split(' ');
     const cmd = verb === 'UID' ? 'UID ' + args[0] : verb;
     commands.push(cmd);
     const replies = [];
     let result = 'OK completed';
-    if (cmd === 'CAPABILITY') replies.push('* CAPABILITY IMAP4rev1 ID');
+    if (cmd === 'CAPABILITY')
+      replies.push('* CAPABILITY IMAP4rev1 ID' + (supportsIdle && state.loggedIn ? ' IDLE' : ''));
     else if (cmd === 'ID') replies.push('* ID ("name" "test")');
     else if (cmd === 'LOGIN') {
       if (!line.includes(password)) result = 'NO [AUTHENTICATIONFAILED]';
+      else state.loggedIn = true;
     } else if (cmd === 'LIST') replies.push('* LIST () "/" "INBOX"');
     else if (cmd === 'LSUB') replies.push('* LSUB () "/" "INBOX"');
-    else if (cmd === 'SELECT' || cmd === 'EXAMINE') {
+    else if (cmd === 'IDLE') {
+      if (refuseIdle) result = 'BAD idle unavailable';
+      else {
+        state.idleTag = tag;
+        socket.write('+ listening\r\n');
+        return;
+      }
+    } else if (cmd === 'NOOP') {
+      /* finish with the tagged response */
+    } else if (cmd === 'SELECT' || cmd === 'EXAMINE') {
       replies.push(
         '* FLAGS (\\Seen)',
         '* ' + inbox.length + ' EXISTS',
@@ -99,6 +136,12 @@ function imap(socket, greet) {
       );
       result = 'OK [READ-ONLY] Selected';
     } else if (cmd === 'UID FETCH' || cmd === 'FETCH') {
+      if (!line.includes('BODY.PEEK[]')) scans.push({ connection: state.id, at: Date.now() });
+      if (dropBody && line.includes('BODY.PEEK[]')) {
+        dropBody = false;
+        socket.destroy();
+        return;
+      }
       const range = args[cmd === 'UID FETCH' ? 1 : 0].split(':');
       const lo = Number(range[0]),
         hi = range[1] === '*' ? inbox.length : Number(range[1] ?? range[0]);
@@ -136,15 +179,17 @@ function smtp(socket, greet) {
         socket.write('554 message rejected\r\n');
         return;
       }
-      if (destination === source) inbox.push(raw);
+      if (destination === source) addMail(raw);
       else if (destination === target) delivered.push(raw);
       else assert.fail('unexpected SMTP envelope');
-      if (loseAck) {
+      if (loseAck && destination === target) {
         loseAck = false;
         socket.destroy();
         return;
       }
-      socket.write('250 queued\r\n');
+      if (holdReceipt && destination === target) {
+        holdReceipt.promise.then(() => socket.write('250 queued\r\n'));
+      } else socket.write('250 queued\r\n');
       return;
     }
     if (line.startsWith('EHLO')) socket.write('250-fixture\r\n250 AUTH PLAIN\r\n');
@@ -194,7 +239,7 @@ try {
     smtpPort = await listen(tls, smtp);
   const options = {
     modules: true,
-    scriptPath: '.wrangler/imap-test/self-host.js',
+    scriptPath: '.wrangler/segment-test/segment-worker.js',
     compatibilityDate: '2026-07-19',
     compatibilityFlags: ['nodejs_compat'],
     defaultPersistRoot: work,
@@ -209,8 +254,10 @@ try {
     },
   };
   runtime = new Miniflare(options);
-  const db = await runtime.getD1Database('DB');
-  await db.exec((await readFile('migrations-imap/0001_relay.sql', 'utf8')).replaceAll('\n', ' '));
+  let db = await runtime.getD1Database('DB');
+  for (const migration of (await readdir('migrations-imap')).sort()) {
+    await db.exec((await readFile('migrations-imap/' + migration, 'utf8')).replaceAll('\n', ' '));
+  }
   const base = 'https://settings.example.test';
   let cookie = '';
   async function api(path, data, expected = 200) {
@@ -247,11 +294,8 @@ try {
       attachments: [{ filename: 'receipt.bin', content: Buffer.from([0, 1, 255]) }],
     });
   }
-  async function scheduled() {
-    const result = await runtime.dispatchFetch(
-      base + '/cdn-cgi/handler/scheduled?cron=' + encodeURIComponent('*/5 * * * *'),
-    );
-    assert.equal(result.status, 200, await result.text());
+  async function manual() {
+    await api('/api/relay/check', {});
   }
   await incoming('older mail');
   const config = {
@@ -275,7 +319,7 @@ try {
   await api('/api/relay/confirm', { id: setup.pending.id, code: '000000000000' }, 409);
   await api('/api/relay/confirm', { id: setup.pending.id, code });
   await incoming('OpenPostway integration');
-  await Promise.all([scheduled(), scheduled()]);
+  await Promise.all([manual(), manual()]);
   assert.equal(delivered.length, 1);
   const forwarded = await PostalMime.parse(delivered[0]);
   assert.equal(forwarded.from.name, 'Relay Assistant');
@@ -294,12 +338,12 @@ try {
   assert.ok(!commands.includes('STORE'));
   assert.equal((await api('/api/relay')).active.issue, null);
   inbox.push(delivered[0]);
-  await scheduled();
+  await manual();
   assert.equal(delivered.length, 1);
   await incoming('uncertain receipt');
   loseAck = true;
-  await scheduled();
-  await scheduled();
+  await manual();
+  await manual();
   const { active: blocked } = await api('/api/relay');
   assert.equal(blocked.issue, 'uncertain');
   assert.equal(delivered.length, 2);
@@ -310,7 +354,7 @@ try {
     action: 'skip',
   });
   validity++;
-  await scheduled();
+  await manual();
   assert.equal((await api('/api/relay')).active.issue, 'reset');
   await api('/api/relay/resolve', {
     generation: blocked.generation,
@@ -319,10 +363,11 @@ try {
   });
   await runtime.dispose();
   runtime = new Miniflare(options);
-  await scheduled();
+  db = await runtime.getD1Database('DB');
+  await manual();
   assert.equal(delivered.length, 2);
   await incoming('after restart');
-  await scheduled();
+  await manual();
   assert.equal(delivered.length, 3);
   await api('/api/session', { password: adminPassword });
   const upgradeSetup = await api('/api/relay/setup', {
@@ -333,13 +378,13 @@ try {
   const upgradeCode = (await PostalMime.parse(delivered.pop())).text.match(/[0-9A-F]{12}/)[0];
   await api('/api/relay/confirm', { id: upgradeSetup.pending.id, code: upgradeCode });
   await incoming('required STARTTLS');
-  await scheduled();
+  await manual();
   assert.equal(delivered.length, 4);
   assert.equal((await PostalMime.parse(delivered.at(-1))).subject, 'required STARTTLS');
   await incoming('permanent rejection');
   rejectData = true;
-  await scheduled();
-  await scheduled();
+  await manual();
+  await manual();
   const { active: rejected } = await api('/api/relay');
   assert.equal(rejected.issue, 'rejected');
   assert.equal(delivered.length, 4);
@@ -349,8 +394,148 @@ try {
     uid: rejected.inFlight,
     action: 'retry',
   });
-  await scheduled();
+  await manual();
   assert.equal(delivered.length, 5);
+  async function waitFor(predicate, label, timeout = 8_000) {
+    const limit = Date.now() + timeout;
+    while (Date.now() < limit) {
+      if (await predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    throw new Error('Timed out waiting for ' + label);
+  }
+  const idleCount = () => [...imapClients.values()].filter((x) => x.idleTag).length;
+  function segment(epoch, duration) {
+    const request = runtime
+      .dispatchFetch(base + '/test/segment', {
+        method: 'POST',
+        body: JSON.stringify({ epoch, until: Date.now() + duration }),
+      })
+      .then(async (r) => assert.equal(r.status, 200, await r.text()));
+    // Report the original assertion if cleanup closes a still-running fixture request.
+    void request.catch(() => {});
+    return request;
+  }
+  const subjects = async () =>
+    (await Promise.all(delivered.map((raw) => PostalMime.parse(raw)))).map((mail) => mail.subject);
+  const hasMail = async (subject) => (await subjects()).includes(subject);
+  async function arrived(subject) {
+    await incoming(subject);
+    await waitFor(() => hasMail(subject), subject);
+  }
+  const firstReceipt = delivered.length;
+  supportsIdle = true;
+  const old = segment(1, 7_000);
+  await waitFor(() => idleCount() === 1, 'predecessor IDLE');
+  await arrived('before handoff');
+  await waitFor(() => idleCount() === 1, 'predecessor listening again');
+  const next = segment(2, 21_000);
+  await waitFor(() => idleCount() === 2, 'both IMAP listeners');
+  const beforeDuplicate = connections;
+  await segment(2, 2_000);
+  assert.equal(connections, beforeDuplicate, 'duplicate scheduler started another socket');
+
+  holdReceipt = Promise.withResolvers();
+  await incoming('both listeners');
+  await waitFor(() => hasMail('both listeners'), 'SMTP accepted in overlap');
+  await Promise.all([manual(), incoming('while SMTP acknowledgment pending')]);
+  assert.equal((await subjects()).filter((x) => x === 'both listeners').length, 1);
+  holdReceipt.resolve();
+  holdReceipt = undefined;
+  await waitFor(() => hasMail('while SMTP acknowledgment pending'), 'arrival during SMTP');
+  await old;
+  assert.equal((await api('/api/relay')).active.listener, 'idle', 'predecessor cleared successor');
+  await arrived('after handoff');
+
+  await waitFor(() => idleCount() === 1, 'successor waiting before outage');
+  unavailableUntil = Date.now() + 1350;
+  for (const sock of imapClients.keys()) sock.destroy();
+  await incoming('during disconnect 1');
+  await incoming('during disconnect 2');
+  await waitFor(() => hasMail('during disconnect 2'), 'catch up after rejected reconnect');
+  await waitFor(() => idleCount() === 1, 'reconnected listener');
+  dropBody = true;
+  await arrived('disconnect during BODY.PEEK');
+  await next;
+  const expected = [
+    'before handoff',
+    'both listeners',
+    'while SMTP acknowledgment pending',
+    'after handoff',
+    'during disconnect 1',
+    'during disconnect 2',
+    'disconnect during BODY.PEEK',
+  ];
+  assert.deepEqual((await subjects()).slice(firstReceipt), expected, 'each UID arrives once in order');
+  assert.equal(
+    await db.prepare("SELECT last_uid FROM mailbox_relay WHERE slot='active'").first('last_uid'),
+    inbox.length,
+  );
+
+  supportsIdle = false;
+  const baseline = connections;
+  const fallback = segment(3, 13_000);
+  await waitFor(() => scans.some((s) => s.connection > baseline), 'fallback initial scan');
+  const firstScan = scans.find((s) => s.connection > baseline);
+  await incoming('ten-second fallback');
+  await waitFor(() => hasMail('ten-second fallback'), 'fallback delivered', 13_000);
+  const secondScan = scans.find((s) => s.connection === firstScan.connection && s.at > firstScan.at);
+  assert.ok(
+    secondScan && secondScan.at - firstScan.at >= 9_900 && secondScan.at - firstScan.at < 13_000,
+    '10 second fallback cadence',
+  );
+  assert.equal(connections, baseline + 1, 'fallback must reuse the authenticated connection');
+  await fallback;
+
+  supportsIdle = true;
+  refuseIdle = true;
+  const refused = segment(4, 2_500);
+  await waitFor(
+    async () => (await api('/api/relay')).active.listener === 'poll',
+    'IDLE rejection switches to polling',
+  );
+  await refused;
+  assert.equal((await subjects()).filter((x) => x === 'ten-second fallback').length, 1);
+  supportsIdle = true;
+  refuseIdle = false;
+  const quiet = segment(5, 12_000);
+  await waitFor(() => idleCount() === 1, 'quiet IDLE');
+  const quietScans = scans.length;
+  await quiet;
+  assert.equal(scans.length, quietScans, 'IDLE performed a ten-second mailbox check while quiet');
+
+  const burst = Array.from({ length: 13 }, (_, i) => 'backlog ' + (i + 1));
+  const startCount = delivered.length;
+  for (const subject of burst) await incoming(subject);
+  const catchup = segment(6, 5_000);
+  await waitFor(() => hasMail(burst.at(-1)), 'drain across the ten-UID batch boundary');
+  await catchup;
+  assert.deepEqual((await subjects()).slice(startCount), burst);
+  const ackStart = delivered.length;
+  const lostA = segment(7, 4_000);
+  await waitFor(() => idleCount() === 1, 'first listener before ambiguous SMTP');
+  const lostB = segment(8, 4_000);
+  await waitFor(() => idleCount() === 2, 'second listener before ambiguous SMTP');
+  loseAck = true;
+  await incoming('SMTP accepted immediately before disconnect');
+  await waitFor(
+    async () => (await api('/api/relay')).active.issue === 'uncertain',
+    'durable uncertain claim',
+  );
+  await Promise.all([manual(), lostA, lostB]);
+  assert.deepEqual((await subjects()).slice(ackStart), ['SMTP accepted immediately before disconnect']);
+  const unresolved = (await api('/api/relay')).active;
+  await api('/api/relay/resolve', {
+    generation: unresolved.generation,
+    validity: unresolved.uidValidity,
+    uid: unresolved.inFlight,
+    action: 'skip',
+  });
+  console.log(
+    'Verified IDLE on two live sockets, same-epoch fencing, arrivals during and after handover, disconnection and interrupted BODY.PEEK, unique SMTP receipts, and fallback on the same connection (' +
+      (secondScan.at - firstScan.at) +
+      ' ms).',
+  );
   console.log(
     'Verified clean setup, destination confirmation, SMTP to IMAP to SMTP over implicit TLS and STARTTLS, message headers and attachment bytes, new-mail-only cursor, overlapping cron, loop prevention, ambiguous delivery, UIDVALIDITY and restart.',
   );
