@@ -30,6 +30,7 @@ export type ApiErrorPayload = {
 export type ForwardingSettings = {
   relay: string;
   senderName: string | null;
+  senderAddress: string;
   destination: string | null;
   pending: string | null;
   step: 'provider' | 'code' | null;

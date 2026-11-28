@@ -19,16 +19,18 @@ export async function forwardEmail(message: EmailWorkerMessage, env: Env): Promi
   }
   try {
     // Before an administrator first visits settings, existing aliases still use the operator's destination.
-    const route = await env.DB.prepare(`SELECT relay, sender_name, destination FROM forwarding_settings WHERE relay = ?1
-      UNION ALL SELECT s.relay, s.sender_name, COALESCE(s.destination, ?2) FROM aliases a
+    const route = await env.DB.prepare(`SELECT relay, sender_name, sender_address, destination FROM forwarding_settings WHERE relay = ?1
+      UNION ALL SELECT s.relay, s.sender_name, s.sender_address, COALESCE(s.destination, ?2) FROM aliases a
       LEFT JOIN forwarding_settings s ON s.owner = 'admin'
       WHERE a.address = ?1 AND a.routing_mode = 'managed' AND a.status = 'active' LIMIT 1`)
-      .bind(recipient, legacyDestination(env)).first<{ relay: string | null; sender_name: string | null; destination: string | null }>();
+      .bind(recipient, legacyDestination(env)).first<{ relay: string | null; sender_name: string | null; sender_address: string | null; destination: string | null }>();
     if (!route) return reject('Mailbox is not registered or is disabled');
     const target = destinationAddress(env, route.destination);
     if (!target) return reject('Mailbox has no active forwarding destination');
     if (route.sender_name && route.relay) {
-      await resendEmail(message, env, { name: route.sender_name, email: route.relay }, target, recipient);
+      const email = route.sender_address ?? route.relay;
+      if (email.toLowerCase() === target) return reject('Sender and destination are the same mailbox');
+      await resendEmail(message, env, { name: route.sender_name, email }, target, recipient, route.relay);
       logEvent('info', { event: 'email_resent', processingId });
       return;
     }

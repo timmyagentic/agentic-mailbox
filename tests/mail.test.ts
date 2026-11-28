@@ -133,6 +133,24 @@ describe('relay sender identity', () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it('re-mails both inbound routes from the assigned address without changing other accounts or the original reply target', async () => {
+    const { relay } = await setRelaySenderName(env, 'admin', display);
+    const alias = (await createAlias(env, { localPart: 'news' })).address;
+    const sender = 'hello@sender.example.net';
+    sql.prepare("UPDATE forwarding_settings SET sender_address = ? WHERE owner = 'admin'").run(sender);
+    expect(await getSettings(env, 'admin')).toMatchObject({ relay, senderAddress: sender });
+    const member = await getSettings(env, owner);
+    expect(member.senderAddress).toBe(member.relay);
+    send.mockResolvedValue({});
+    for (const recipient of [alias, relay]) {
+      const raw = ['From: Author <writer@example.net>', 'Reply-To: ' + relay, 'To: ' + recipient, 'Subject: Article', '', 'Text'].join('\r\n');
+      await worker.email(incoming(recipient, raw).event, env);
+      expect(send.mock.lastCall![0]).toMatchObject({ from: { name: display, email: sender }, to: 'old@example.org', replyTo: 'writer@example.net' });
+    }
+    await expect(requestDestination(env, 'admin', sender)).rejects.toThrow('目标不能是当前代发地址');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it('uses the verified target, propagates a send failure, and rejects mail already processed by this relay', async () => {
     const { relay } = await setRelaySenderName(env, owner, display);
     const raw = 'From: writer@example.org\r\nTo: other@example.net\r\nSubject: Subject\r\n\r\nBody';
