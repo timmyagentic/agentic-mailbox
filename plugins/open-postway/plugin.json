@@ -1,19 +1,19 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "agentic-mailbox",
-  "version": "0.2.0",
+  "name": "open-postway",
+  "version": "0.3.0",
   "description": "Manage forwarding destinations, relay addresses and domain aliases.",
   "author": {
-    "name": "Agentic Mailbox contributors"
+    "name": "OpenPostway contributors"
   },
   "license": "MIT",
   "extensions": {
     "com.openai": {
       "interface": {
-        "displayName": "Agentic Mailbox",
+        "displayName": "OpenPostway",
         "shortDescription": "Manage email forwarding",
         "category": "Productivity",
-        "developerName": "Agentic Mailbox contributors",
+        "developerName": "OpenPostway contributors",
         "capabilities": [
           "Read",
           "Write"

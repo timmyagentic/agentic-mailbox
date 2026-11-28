@@ -1,6 +1,6 @@
 ---
-name: agentic-mailbox
-description: Inspect or change Agentic Mailbox forwarding settings, relay addresses and managed domain aliases for an authorized user.
+name: open-postway
+description: Inspect or change OpenPostway forwarding settings, relay addresses and managed domain aliases for an authorized user.
 ---
 
 Run `python3 <skill-directory>/scripts/mailbox.py` with one of the commands below. Output is JSON. Keep credentials and confirmation codes in the user's terminal.
