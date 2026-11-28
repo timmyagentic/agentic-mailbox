@@ -1,48 +1,12 @@
-import type { BootstrapPayload, DraftInput } from '../shared/types';
-import { chatGPTRoute, localChatGPT } from './chatgpt';
-import type { ChatGPTConnection } from '../shared/types';
-import { listMailAccounts, refreshMailAccount, saveMailAccount } from './accounts';
-import {
-  clearedSessionCookies,
-  createSessionToken,
-  getSession,
-  passwordsMatch,
-  sessionCookie,
-  verifiedClientFingerprint,
-} from './auth';
-import {
-  createAlias,
-  getAttachmentRow,
-  getEmail,
-  getConversation,
-  listConversations,
-  markConversationRead,
-  updateMailPlacement,
-  getStats,
-  listAliases,
-  listEmails,
-  listFiles,
-  setEmailRead,
-  updateAlias,
-} from './db';
-import {
-  discardDraft, discardDraftFile, generateDraftText, getDraft, listDrafts, saveDraft, sendDraft, uploadDraftFile,
-} from './drafts';
+import { clearedSessionCookies, createSessionToken, getSession, passwordsMatch, sessionCookie, verifiedClientFingerprint } from './auth';
+import { createAlias, listAliases, updateAlias } from './db';
+import { cancelPending, confirmDestination, getSettings, requestDestination, verifyDestination } from './forwarding';
 import { assertSameOrigin, HttpError, json, parseLimit, readJson } from './http';
-import { configuredOAuthProviders, finishOAuth, isOAuthProvider, oauthCallback, startOAuth } from './oauth';
+import { memberUsername, routeMember } from './members';
+import { legacySources } from './sources';
 import type { Env } from './types';
 
 type LoginBody = { password?: string };
-type CreateAliasBody = { localPart?: string; label?: string; note?: string; generate?: boolean };
-type UpdateAliasBody = { label?: string; note?: string; status?: 'active' | 'disabled' };
-type UpdateEmailBody = { read?: boolean };
-
-async function requireSession(request: Request, env: Env): Promise<void> {
-  const session = await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS);
-  if (!session.authenticated) {
-    throw new HttpError(401, 'authentication_required', '请先登录管理端。');
-  }
-}
 
 async function health(env: Env): Promise<Response> {
   try {
@@ -50,7 +14,7 @@ async function health(env: Env): Promise<Response> {
     return json({
       ok: true,
       service: 'agentic-mailbox',
-      dependencies: { database: 'ready', objectStorage: 'configured' },
+      dependencies: { database: 'ready' },
       timestamp: new Date().toISOString(),
     });
   } catch {
@@ -58,7 +22,7 @@ async function health(env: Env): Promise<Response> {
       {
         ok: false,
         service: 'agentic-mailbox',
-        dependencies: { database: 'unavailable', objectStorage: 'configured' },
+        dependencies: { database: 'unavailable' },
         timestamp: new Date().toISOString(),
       },
       503,
@@ -98,10 +62,10 @@ async function handleCertificateLogin(request: Request, env: Env): Promise<Respo
 
 async function handleSession(request: Request, env: Env): Promise<Response> {
   if (request.method === 'GET') {
-    const chatGPTLogin = env.LOCAL_MODE === '1' && env.CHATGPT
-      ? (await localChatGPT<ChatGPTConnection>(env, 'status').catch(() => null))?.linked : false;
-    return json({ chatGPTLogin, ...await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS),
-      ...(env.MEMBERS ? { edition: 'hosted' } : env.LOCAL_MODE === '1' ? { edition: 'local' } : {}) });
+    const username = await memberUsername(request, env);
+    const session = username ? { authenticated: true, user: { email: username } }
+      : await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS);
+    return json({ ...session, admin: session.authenticated && !username, ...(env.MEMBERS ? { edition: 'hosted' } : {}) });
   }
 
   assertSameOrigin(request);
@@ -125,283 +89,47 @@ async function handleSession(request: Request, env: Env): Promise<Response> {
   throw new HttpError(405, 'method_not_allowed', '请求方法不支持。');
 }
 
-async function bootstrap(env: Env): Promise<Response> {
-  const [stats, recentEmails, recentAliases, mailAccounts] = await Promise.all([
-    getStats(env),
-    listEmails(env, { limit: 8 }),
-    listAliases(env, '', 6),
-    listMailAccounts(env),
-  ]);
-  return json({
-    appName: env.APP_NAME,
-    primaryDomain: env.PRIMARY_DOMAIN,
-    adminEmail: env.ADMIN_EMAIL,
-    stats,
-    recentEmails,
-    recentAliases,
-    mailAccounts,
-    local: env.LOCAL_MODE === '1',
-    ...(env.LOCAL_MODE === '1' && env.CHATGPT ? { chatGPT: await localChatGPT<ChatGPTConnection>(env, 'status').catch(() => undefined) } : {}),
-    externalOnly: Boolean(env.EXTERNAL_ONLY || env.LOCAL_MODE === '1'),
-    oauthProviders: configuredOAuthProviders(env),
-  } satisfies BootstrapPayload);
-}
-
-function routeId(pathname: string, prefix: string, suffix = ''): string | null {
-  if (!pathname.startsWith(prefix) || (suffix && !pathname.endsWith(suffix))) {
-    return null;
-  }
-  const end = suffix ? -suffix.length : undefined;
-  const raw = pathname.slice(prefix.length, end);
-  if (!raw || raw.includes('/')) {
-    return null;
-  }
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return null;
-  }
-}
-
-function encodedFilename(filename: string): string {
-  return encodeURIComponent(filename).replace(/['()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-}
-
-async function downloadAttachment(env: Env, id: string): Promise<Response> {
-  const row = await getAttachmentRow(env, id);
-  const object = await env.ATTACHMENTS.get(row.r2_key);
-  if (!object || !('body' in object)) {
-    throw new HttpError(404, 'attachment_object_missing', '附件文件不存在。');
-  }
-
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set('Content-Type', row.content_type || 'application/octet-stream');
-  headers.set('Content-Length', String(row.size));
-  headers.set('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename(row.filename)}`);
-  headers.set('Cache-Control', 'private, no-store');
-  headers.set('ETag', object.httpEtag);
-  return new Response(object.body, { headers });
-}
-
 export async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const { pathname, searchParams } = url;
+  const path = url.pathname;
+  const method = request.method;
+  if (path === '/api/health' && method === 'GET') return health(env);
+  if (path === '/api/session') return handleSession(request, env);
+  if (path === '/api/session/certificate') return handleCertificateLogin(request, env);
+  const memberLogin = await routeMember(request, env);
+  if (memberLogin) return memberLogin;
 
-  if (pathname === '/api/health' && request.method === 'GET') {
-    return health(env);
+  const username = await memberUsername(request, env);
+  if (!username && !(await getSession(request, env.ADMIN_EMAIL, env.SESSION_SECRET, env.ADMIN_CERT_FINGERPRINTS)).authenticated) {
+    throw new HttpError(401, 'authentication_required', '请先登录转发设置。');
   }
-
-  if (pathname.startsWith('/api/chatgpt/')) {
-    return chatGPTRoute(request, env, () => startAdminSession(request, env));
-  }
-  if (pathname === '/api/session') {
-    return handleSession(request, env);
-  }
-
-  if (pathname === '/api/session/local' && env.LOCAL_MODE === '1' && request.method === 'POST') {
-    assertSameOrigin(request);
-    const { ticket } = await readJson<{ ticket?: string }>(request);
-    if (typeof ticket !== 'string' || ticket.length !== 64) throw new HttpError(401, 'invalid_ticket', '请重新打开本地启动器。');
-    const result = await env.DB.prepare('DELETE FROM local_launch WHERE ticket = ?1 AND expires > ?2')
-      .bind(ticket, Date.now()).run();
-    if (!result.meta.changes) throw new HttpError(401, 'expired_ticket', '本机登录链接已过期，请使用本机密码。');
-    return startAdminSession(request, env);
-  }
-
-  if (pathname === '/api/session/certificate') {
-    return handleCertificateLogin(request, env);
-  }
-
-  const callbackProvider = routeId(pathname, '/api/oauth/', '/callback');
-  if (isOAuthProvider(callbackProvider) && request.method === 'GET') {
-    return oauthCallback(env, url, callbackProvider);
-  }
-
-  await requireSession(request, env);
-  if (pathname === '/api/codex/connect' && env.LOCAL_MODE === '1' && env.LOCAL_CODEX && request.method === 'POST') {
-    assertSameOrigin(request);
+  const owner = username ? 'member:' + username : 'admin';
+  if (method !== 'GET') assertSameOrigin(request);
+  if (path === '/api/forwarding' && method === 'GET') return json(await getSettings(env, owner));
+  if (path === '/api/forwarding/sources' && method === 'GET') return json({ sources: await legacySources(env, username) });
+  if (path === '/api/forwarding/destination' && method === 'DELETE') {
     await readJson(request);
-    const token = await createSessionToken(env.ADMIN_EMAIL, env.SESSION_SECRET);
-    const cookie = sessionCookie(token, request.url).split(';')[0];
-    const connected = await env.LOCAL_CODEX.fetch('https://local-codex.internal/connect', {
-      method: 'POST', body: JSON.stringify({ cookie }),
-    });
-    if (!connected.ok) throw new HttpError(503, 'codex_pair_failed', '无法保存本机 Codex 插件会话。');
-    return json(await connected.json<{ profile: string }>());
+    return json(await cancelPending(env, owner));
   }
-  if ((env.EXTERNAL_ONLY || env.LOCAL_MODE === '1') && request.method !== 'GET' && (pathname === '/api/aliases' || pathname.startsWith('/api/aliases/'))) {
-    throw new HttpError(403, 'managed_domain_only', '此空间只支持连接外部邮箱。');
+  if ((path === '/api/forwarding/destination' && method === 'PUT') || (path === '/api/forwarding/verify' && method === 'POST')) {
+    const body = await readJson<{ address?: unknown }>(request);
+    const limited = await env.MEMBER_AUTH_LIMIT?.limit({ key: 'forwarding:' + (request.headers.get('CF-Connecting-IP') || owner) });
+    if (limited && !limited.success) throw new HttpError(429, 'rate_limited', '请求过于频繁，请稍后重试。');
+    const change = method === 'PUT' ? requestDestination : verifyDestination;
+    return json(await change(env, owner, body?.address));
   }
-
-  const startProvider = routeId(pathname, '/api/oauth/', '/start');
-  if (isOAuthProvider(startProvider) && request.method === 'POST') {
-    assertSameOrigin(request);
-    const body = await readJson<{ accountId?: unknown }>(request);
-    return json({ url: await startOAuth(env, request, startProvider, body?.accountId) });
+  if (path === '/api/forwarding/confirm' && method === 'POST') {
+    const body = await readJson<{ code?: unknown }>(request);
+    return json(await confirmDestination(env, owner, body?.code));
   }
-
-  const finishProvider = routeId(pathname, '/api/oauth/', '/finish');
-  if (isOAuthProvider(finishProvider) && request.method === 'POST') {
-    assertSameOrigin(request);
-    const body = await readJson<{ state?: unknown; code?: unknown; error?: unknown }>(request);
-    const accountId = await finishOAuth(env, request, finishProvider, body);
-    return json({ ok: true, accountId });
-  }
-
-  if (pathname === '/api/bootstrap' && request.method === 'GET') {
-    return bootstrap(env);
-  }
-
-  if (pathname === '/api/mail-accounts' && request.method === 'POST') {
-    assertSameOrigin(request);
-    const body = await readJson<{ email?: unknown; authorizationCode?: unknown }>(request);
-    return json({ account: await saveMailAccount(env, body) });
-  }
-
-  const accountId = routeId(pathname, '/api/mail-accounts/', '/refresh');
-  if (accountId && request.method === 'POST') {
-    assertSameOrigin(request);
-    return json({ result: await refreshMailAccount(env, accountId) });
-  }
-
-  if (pathname === '/api/aliases') {
-    if (request.method === 'GET') {
-      return json({
-        aliases: await listAliases(env, searchParams.get('q') ?? '', parseLimit(searchParams.get('limit'))),
-      });
+  if (path === '/api/aliases' || path.startsWith('/api/aliases/')) {
+    if (username) throw new HttpError(403, 'admin_required', '域名别名由管理员维护。');
+    if (path === '/api/aliases' && method === 'GET') {
+      return json({ aliases: await listAliases(env, url.searchParams.get('q') ?? '', parseLimit(url.searchParams.get('limit'), 100)) });
     }
-    if (request.method === 'POST') {
-      assertSameOrigin(request);
-      return json({ alias: await createAlias(env, await readJson<CreateAliasBody>(request)) }, 201);
-    }
+    if (path === '/api/aliases' && method === 'POST') return json({ alias: await createAlias(env, await readJson(request)) }, 201);
+    const id = path.match(/^\/api\/aliases\/([^/]+)$/)?.[1];
+    if (id && method === 'PATCH') return json({ alias: await updateAlias(env, id, await readJson(request)) });
   }
-
-  const aliasId = routeId(pathname, '/api/aliases/');
-  if (aliasId && request.method === 'PATCH') {
-    assertSameOrigin(request);
-    return json({ alias: await updateAlias(env, aliasId, await readJson<UpdateAliasBody>(request)) });
-  }
-
-  if (pathname === '/api/conversations' && request.method === 'GET') {
-    const folder = searchParams.get('folder');
-    const parsedPage = Number(searchParams.get('page') ?? '1');
-    const page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? Math.min(parsedPage, 10_000) : 1;
-    const limit = parseLimit(searchParams.get('limit'), 25, 50);
-    return json(await listConversations(env, {
-      folder: folder === 'sent' || folder === 'archive' || folder === 'trash' ? folder : 'inbox',
-      aliasId: searchParams.get('aliasId') ?? undefined,
-      query: searchParams.get('q') ?? undefined,
-      unreadOnly: searchParams.get('unread') === '1',
-      limit, offset: (page - 1) * limit,
-    }));
-  }
-  const conversationId = routeId(pathname, '/api/conversations/');
-  if (conversationId && request.method === 'GET') return json(await getConversation(env, conversationId));
-  if (conversationId && request.method === 'PATCH') {
-    assertSameOrigin(request);
-    const input = await readJson<{ read?: unknown }>(request);
-    if (typeof input?.read !== 'boolean') throw new HttpError(400, 'invalid_read_state', '邮件阅读状态不正确。');
-    await markConversationRead(env, conversationId, input.read);
-    return json({ ok: true });
-  }
-
-  if (pathname === '/api/drafts' && request.method === 'GET') return json({ drafts: await listDrafts(env) });
-  if (pathname === '/api/drafts' && request.method === 'POST') {
-    assertSameOrigin(request);
-    return json({ draft: await saveDraft(env, await readJson<DraftInput>(request)) }, 201);
-  }
-  const writeId = routeId(pathname, '/api/drafts/');
-  if (writeId && request.method === 'GET') return json({ draft: await getDraft(env, writeId) });
-  if (writeId && (request.method === 'PUT' || request.method === 'DELETE')) {
-    assertSameOrigin(request);
-    if (request.method === 'PUT') {
-      return json({ draft: await saveDraft(env, await readJson<DraftInput>(request), writeId) });
-    }
-    await discardDraft(env, writeId);
-    return json({ ok: true });
-  }
-
-  const sendId = routeId(pathname, '/api/drafts/', '/send');
-  if (sendId && request.method === 'POST') {
-    assertSameOrigin(request);
-    await readJson(request);
-    return json(await sendDraft(env, sendId));
-  }
-  const generateId = routeId(pathname, '/api/drafts/', '/suggest');
-  if (generateId && request.method === 'POST') {
-    assertSameOrigin(request);
-    const body = await readJson<{ instruction?: unknown }>(request);
-    return json({ text: await generateDraftText(env, generateId, body?.instruction) });
-  }
-  const uploadId = routeId(pathname, '/api/drafts/', '/files');
-  if (uploadId && request.method === 'POST') {
-    assertSameOrigin(request);
-    return json({ file: await uploadDraftFile(env, uploadId, request, searchParams.get('name') ?? '') }, 201);
-  }
-  const draftFile = pathname.match(/^\/api\/drafts\/([a-f0-9-]+)\/files\/([a-f0-9-]+)$/i);
-  if (draftFile && request.method === 'DELETE') {
-    assertSameOrigin(request);
-    await discardDraftFile(env, draftFile[1], draftFile[2]);
-    return json({ ok: true });
-  }
-
-  if (pathname === '/api/emails' && request.method === 'GET') {
-    return json({
-      emails: await listEmails(env, {
-        aliasId: searchParams.get('aliasId') ?? undefined,
-        query: searchParams.get('q') ?? undefined,
-        unreadOnly: searchParams.get('unread') === '1',
-        limit: parseLimit(searchParams.get('limit')),
-      }),
-    });
-  }
-
-  const placementId = routeId(pathname, '/api/emails/', '/placement');
-  if (placementId && request.method === 'PATCH') {
-    assertSameOrigin(request);
-    const { starred, folder } = await readJson<{ starred?: unknown; folder?: unknown }>(request) ?? {};
-    if ((starred !== undefined && typeof starred !== 'boolean')
-      || (folder !== undefined && folder !== 'archive' && folder !== 'trash' && folder !== 'restore')
-      || (starred === undefined && folder === undefined)) {
-      throw new HttpError(400, 'invalid_mail_placement', '邮件标记或文件夹无效。');
-    }
-    await updateMailPlacement(env, placementId, { starred, folder });
-    return json({ ok: true });
-  }
-
-  const emailId = routeId(pathname, '/api/emails/');
-  if (emailId) {
-    if (request.method === 'GET') {
-      return json({ email: await getEmail(env, emailId) });
-    }
-    if (request.method === 'PATCH') {
-      assertSameOrigin(request);
-      const body = await readJson<UpdateEmailBody>(request);
-      if (typeof body.read !== 'boolean') {
-        throw new HttpError(400, 'invalid_read_state', '邮件阅读状态不正确。');
-      }
-      await setEmailRead(env, emailId, body.read);
-      return json({ ok: true });
-    }
-  }
-
-  if (pathname === '/api/files' && request.method === 'GET') {
-    return json({
-      files: await listFiles(env, {
-        aliasId: searchParams.get('aliasId') ?? undefined,
-        query: searchParams.get('q') ?? undefined,
-        limit: parseLimit(searchParams.get('limit')),
-      }),
-    });
-  }
-
-  const attachmentId = routeId(pathname, '/api/attachments/', '/download');
-  if (attachmentId && request.method === 'GET') {
-    return downloadAttachment(env, attachmentId);
-  }
-
-  throw new HttpError(404, 'not_found', '接口不存在。');
+  throw new HttpError(404, 'not_found', '找不到此接口。');
 }

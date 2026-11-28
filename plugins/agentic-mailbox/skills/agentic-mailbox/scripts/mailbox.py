@@ -115,7 +115,7 @@ def login(args):
 
 def parser():
     root = argparse.ArgumentParser(description=__doc__)
-    root.add_argument("--profile", default="default", help="Separate session for a local or hosted mailbox instance")
+    root.add_argument("--profile", default="default", help="Separate forwarding service session")
     commands = root.add_subparsers(dest="command", required=True)
     auth = commands.add_parser("login")
     auth.add_argument("--origin", required=True)
@@ -123,7 +123,7 @@ def parser():
     mode.add_argument("--username")
     mode.add_argument("--admin", action="store_true")
     auth.add_argument("--password-stdin", action="store_true")
-    for name in ("profiles", "logout", "status", "accounts", "drafts"):
+    for name in ("profiles", "logout", "status", "forwarding", "sources", "cancel-change", "confirm-destination"):
         commands.add_parser(name)
     commands.add_parser("aliases", help="Find addresses in this instance").add_argument("--query", default="")
     create = commands.add_parser("create-alias", help="Create a hosted domain address")
@@ -132,19 +132,8 @@ def parser():
     update = commands.add_parser("set-alias-status", help="Enable or disable a hosted address")
     update.add_argument("id")
     update.add_argument("status", choices=("active", "disabled"))
-    inbox = commands.add_parser("list")
-    inbox.add_argument("--folder", choices=("inbox", "sent", "archive", "trash"), default="inbox")
-    inbox.add_argument("--query")
-    inbox.add_argument("--account")
-    inbox.add_argument("--unread", action="store_true")
-    inbox.add_argument("--page", type=int, default=1)
-    commands.add_parser("refresh").add_argument("--account")
-    for name in ("read", "mark-read", "mark-unread", "get-draft", "suggest", "send"):
-        commands.add_parser(name).add_argument("id")
-    move = commands.add_parser("move")
-    move.add_argument("id")
-    move.add_argument("folder", choices=("archive", "trash", "restore"))
-    commands.add_parser("save-draft").add_argument("id", nargs="?")
+    for name in ("set-destination", "verify-destination"):
+        commands.add_parser(name).add_argument("address")
     return root
 
 
@@ -152,9 +141,19 @@ def send_command(args, api):
     command = args.command
     if command == "status":
         return api("/api/session")
-    if command == "accounts":
-        data = api("/api/bootstrap")
-        return {"accounts": data["mailAccounts"], "aliases": api("/api/aliases?limit=100")["aliases"]}
+    if command == "forwarding":
+        return api("/api/forwarding")
+    if command == "sources":
+        return api("/api/forwarding/sources")
+    if command == "set-destination":
+        return api("/api/forwarding/destination", method="PUT", data={"address": args.address})
+    if command == "verify-destination":
+        return api("/api/forwarding/verify", data={"address": args.address})
+    if command == "confirm-destination":
+        code = getpass.getpass("Destination confirmation code: ")
+        return api("/api/forwarding/confirm", data={"code": code})
+    if command == "cancel-change":
+        return api("/api/forwarding/destination", method="DELETE", data={})
     if command == "aliases":
         return api("/api/aliases?" + urllib.parse.urlencode({"q": args.query, "limit": 100}))
     if command == "create-alias":
@@ -165,47 +164,6 @@ def send_command(args, api):
         if args.id in ("", ".", ".."):
             raise MailboxError("A mailbox alias ID is required.")
         return api("/api/aliases/" + urllib.parse.quote(args.id, safe=""), method="PATCH", data={"status": args.status})
-    if command == "list":
-        query = {"folder": args.folder, "page": max(1, args.page)}
-        if args.query:
-            query["q"] = args.query
-        if args.account:
-            query["aliasId"] = args.account
-        if args.unread:
-            query["unread"] = "1"
-        return api("/api/conversations?" + urllib.parse.urlencode(query))
-    if command == "refresh":
-        ids = [args.account] if args.account else [account["id"] for account in api("/api/bootstrap")["mailAccounts"]]
-        results = []
-        for value in ids:
-            try:
-                results.append(api("/api/mail-accounts/" + urllib.parse.quote(value, safe="") + "/refresh", data={})["result"])
-            except MailboxError as error:
-                results.append({"id": value, "error": str(error)})
-        return {"results": results}
-    if command == "drafts":
-        return api("/api/drafts")
-    identifier = "/" + urllib.parse.quote(args.id, safe="") if args.id else ""
-    if command == "read":
-        return api("/api/conversations" + identifier)
-    if command in ("mark-read", "mark-unread"):
-        return api("/api/conversations" + identifier, method="PATCH", data={"read": command == "mark-read"})
-    if command == "move":
-        return api("/api/emails" + identifier + "/placement", method="PATCH", data={"folder": args.folder})
-    draft_path = "/api/drafts" + identifier
-    if command == "get-draft":
-        return api(draft_path)
-    if command == "save-draft":
-        data = json.load(sys.stdin)
-        if not isinstance(data, dict):
-            raise MailboxError("The draft must be a JSON object.")
-        if data.get("mode") == "forward":
-            data.setdefault("includeOriginalFiles", False)
-        return api(draft_path, method="PUT" if identifier else "POST", data=data)
-    if command == "suggest":
-        return api(draft_path + "/suggest", data={"instruction": sys.stdin.read().strip()})
-    if command == "send":
-        return api(draft_path + "/send", data={})
     raise MailboxError("Unknown mailbox command.")
 
 

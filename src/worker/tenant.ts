@@ -1,46 +1,10 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
-import schema from '../../migrations/0001_initial.sql';
-import imap from '../../migrations/0002_imap_accounts.sql';
-import drafts from '../../migrations/0003_conversations_and_drafts.sql';
-import oauth from '../../migrations/0004_oauth_accounts.sql';
-import { handleApi } from './api';
+import { legacySourcesQuery } from './sources';
 import { sessionCookie } from './auth';
 import { apiError, HttpError, json } from './http';
-import { memberSecret, memberSession } from './members';
-import type { MailDatabase, MailStatement } from './storage-types';
+import { memberSession } from './members';
 import type { Env } from './types';
-
-class Statement implements MailStatement {
-  constructor(private sql: SqlStorage, private query: string, private params: SqlStorageValue[] = []) {}
-  bind(...params: SqlStorageValue[]) { return new Statement(this.sql, this.query, params); }
-  execute<T>() {
-    const cursor = this.sql.exec(this.query, ...this.params);
-    const results = cursor.toArray() as T[];
-    // rowsWritten counts index updates too. Existing callers only test zero versus nonzero,
-    // but changes() is required for conditional UPDATE/INSERT semantics.
-    const changes = this.sql.exec<{ n: number }>('SELECT changes() AS n').one().n;
-    return { results, meta: { changes } };
-  }
-  async first<T>(column?: string) {
-    const row = this.sql.exec(this.query, ...this.params).toArray()[0];
-    return (row ? column ? row[column] : row : null) as T | null;
-  }
-  async all<T>() { return this.execute<T>(); }
-  async run<T>() { return this.execute<T>(); }
-}
-
-function database(storage: DurableObjectStorage): MailDatabase {
-  return {
-    prepare(query) { return new Statement(storage.sql, query); },
-    async batch<T>(statements: MailStatement[]) {
-      return storage.transactionSync(() => statements.map(statement => {
-        if (!(statement instanceof Statement)) throw new Error('Incompatible statement');
-        return statement.execute<T>();
-      }));
-    },
-  };
-}
 
 async function passwordDigest(value: string, salt: string) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(value), 'PBKDF2', false, ['deriveBits']);
@@ -74,24 +38,11 @@ export class MemberMailbox {
         return json({ authenticated: true, user: { email: username }, edition: 'hosted' }, 200,
           { 'Set-Cookie': sessionCookie(await memberSession(this.bindings, username), request.url) });
       }
-      if (!storage.kv.get('mail-schema')) {
-        storage.transactionSync(() => {
-          for (const migration of [schema, imap, drafts, oauth]) {
-            storage.sql.exec(migration.replace('PRAGMA foreign_keys = ON;', ''));
-          }
-          storage.kv.put('mail-schema', 1);
-        });
+      if (path === '/sources' && request.method === 'GET') {
+        const sources = storage.kv.get('mail-schema') ? storage.sql.exec(legacySourcesQuery).toArray() : [];
+        return json({ sources });
       }
-      const bucket = this.bindings.ATTACHMENTS;
-      const prefix = 'members/' + this.ctx.id.toString() + '/';
-      const scoped: Env = { ...this.bindings, DB: database(storage), ATTACHMENTS: {
-        get: key => bucket.get(prefix + key),
-        put: (key, value, options) => bucket.put(prefix + key, value, options),
-        delete: keys => bucket.delete(typeof keys === 'string' ? prefix + keys : keys.map(key => prefix + key)),
-      }, EXTERNAL_ONLY: true, MEMBERS: undefined, ADMIN_EMAIL: username, ADMIN_PASSWORD: '',
-        ADMIN_CERT_FINGERPRINTS: undefined, SESSION_SECRET: memberSecret(this.bindings), EMAIL: undefined,
-        PRIMARY_DOMAIN: '', FORWARD_TO: undefined };
-      return await handleApi(request, scoped);
+      throw new HttpError(404, 'not_found', '找不到此接口。');
     } catch (error) {
       return apiError(error, crypto.randomUUID());
     }
