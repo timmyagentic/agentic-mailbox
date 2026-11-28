@@ -1,15 +1,18 @@
-export interface Env {
+export interface SessionEnv {
   MEMBERS?: DurableObjectNamespace;
   MEMBER_AUTH_LIMIT?: RateLimit;
   DB: D1Database;
   ASSETS: Fetcher;
-  EMAIL: SendEmail;
-  PRIMARY_DOMAIN: string;
   ADMIN_EMAIL: string;
-  FORWARD_TO?: string;
   ADMIN_PASSWORD: string;
   ADMIN_CERT_FINGERPRINTS?: string;
   SESSION_SECRET: string;
+}
+
+export interface Env extends SessionEnv {
+  EMAIL: SendEmail;
+  PRIMARY_DOMAIN: string;
+  FORWARD_TO?: string;
   ROUTING_ACCOUNT_ID?: string;
   ROUTING_API_TOKEN?: string;
 }

@@ -1,16 +1,16 @@
 import { createSessionToken, readSessionCookie, verifySessionToken } from './auth';
 import { assertSameOrigin, HttpError, readJson } from './http';
-import type { Env } from './types';
+import type { SessionEnv } from './types';
 
 const usernamePattern = /^[a-z0-9][a-z0-9_-]{2,39}$/;
-export function memberSecret(env: Env) { return env.SESSION_SECRET + '/member-session-v1'; }
+export function memberSecret(env: SessionEnv) { return env.SESSION_SECRET + '/member-session-v1'; }
 
-export async function memberSession(env: Env, username: string) {
+export async function memberSession(env: SessionEnv, username: string) {
   const token = await createSessionToken(username, memberSecret(env));
   return `member:${username}:${token}`;
 }
 
-export async function routeMember(request: Request, env: Env): Promise<Response | null> {
+export async function routeMember(request: Request, env: SessionEnv): Promise<Response | null> {
   const namespace = env.MEMBERS;
   if (!namespace) return null;
   const url = new URL(request.url);
@@ -33,7 +33,7 @@ export async function routeMember(request: Request, env: Env): Promise<Response 
   return null;
 }
 
-export async function memberUsername(request: Request, env: Env): Promise<string | null> {
+export async function memberUsername(request: Request, env: SessionEnv): Promise<string | null> {
   const raw = readSessionCookie(request);
   if (!env.MEMBERS || !raw?.startsWith('member:')) return null;
   const [, username, token, extra] = raw.split(':');

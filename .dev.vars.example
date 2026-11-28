@@ -1,7 +1,9 @@
 ADMIN_PASSWORD=
 SESSION_SECRET=
+# IMAP edition: a Base64-encoded, random 32-byte AES key.
+MAIL_ACCOUNT_KEY=
 # Optional administrator mTLS allowlist.
 ADMIN_CERT_FINGERPRINTS=
-# Account-scoped Email Routing Addresses Write token for destination enrollment.
+# Optional Cloudflare domain edition: account-scoped Email Routing Addresses Write token for destination enrollment.
 ROUTING_ACCOUNT_ID=
 ROUTING_API_TOKEN=

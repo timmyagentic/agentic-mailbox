@@ -1,6 +1,18 @@
-import PostalMime from 'postal-mime';
+import PostalMime, { type RawEmail } from 'postal-mime';
 import { internetMailbox } from '../shared/validation';
 import type { EmailWorkerMessage, Env } from './types';
+
+export async function readOriginal(raw: RawEmail, excluded: string[], fallbackAuthor?: string) {
+  const original = await PostalMime.parse(raw, {
+    attachmentEncoding: 'arraybuffer', forceRfc822Attachments: true,
+  });
+  const author = internetMailbox(original.from?.address);
+  const replyTo = [...(original.replyTo ?? []).map(item => item.address), author, fallbackAuthor]
+    .map(internetMailbox).find((address): address is string => address !== null
+      && !excluded.some(item => item.toLowerCase() === address.toLowerCase()));
+  const subject = original.subject?.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim() || '（无主题）';
+  return { original, author, replyTo, subject };
+}
 
 export async function resendEmail(
   message: EmailWorkerMessage,
@@ -10,14 +22,7 @@ export async function resendEmail(
   originalRecipient: string,
   inboundRelay: string,
 ) {
-  const original = await PostalMime.parse(message.raw, {
-    attachmentEncoding: 'arraybuffer', forceRfc822Attachments: true,
-  });
-  const author = internetMailbox(original.from?.address);
-  const replyTo = [...(original.replyTo ?? []).map(item => item.address), author, message.from]
-    .map(internetMailbox).find((address): address is string => address !== null
-      && address.toLowerCase() !== from.email.toLowerCase() && address.toLowerCase() !== inboundRelay.toLowerCase());
-  const subject = original.subject?.replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').trim() || '（无主题）';
+  const { original, author, replyTo, subject } = await readOriginal(message.raw, [from.email, inboundRelay], message.from);
   // Start a new message. Envelope recipients, Cc/Bcc and authentication headers belong to the old delivery.
   await env.EMAIL.send({
     from, to: destination, subject,
