@@ -1,3 +1,5 @@
+import type { ImapFlow } from 'imapflow';
+import type { MailAuth } from './protocol';
 import type { MailboxProfile, RelayIssue } from '../../shared/mailbox';
 import { HttpError } from '../http';
 import { latestUid, readNewMail, RelayFailure, sendSmtp, upcoming, withInbox } from './protocol';
@@ -6,49 +8,101 @@ import { active, routeAuth, type Route } from './store';
 
 const leaseMs = 3 * 60_000;
 
-export async function syncMailbox(env: RelayEnv) {
+type DrainResult = { state: 'ok'; cursor: number } | { state: 'busy' | 'stop' | 'retry' | 'reconnect' };
+
+export type OpenInbox = {
+  client: ImapFlow;
+  validity: string;
+  expectedValidity: string;
+  generation: string;
+  auth: MailAuth;
+  candidates: number[];
+  signal: AbortSignal;
+  budget: { submits: number };
+};
+
+export async function syncMailbox(env: RelayEnv, opened?: OpenInbox): Promise<DrainResult> {
   const run = crypto.randomUUID();
   const now = Date.now();
   const row = await env.DB.prepare(
     `UPDATE mailbox_relay SET lock_id=?,lock_until=?,checked_at=?
     WHERE slot='active' AND lock_until<=? AND in_flight IS NULL AND COALESCE(problem,'')!='reset'
+    AND (? IS NULL OR (generation=? AND uid_validity=?))
     RETURNING *`,
   )
-    .bind(run, now + leaseMs, now, now)
+    .bind(
+      run,
+      now + leaseMs,
+      now,
+      now,
+      opened?.generation ?? null,
+      opened?.generation ?? null,
+      opened?.expectedValidity ?? null,
+    )
     .first<Route>();
-  if (!row) return;
+  if (!row) {
+    if (!opened) return { state: 'stop' };
+    const current = await active(env);
+    if (
+      !current ||
+      current.generation !== opened.generation ||
+      current.uid_validity !== opened.expectedValidity ||
+      current.problem === 'reset' ||
+      (current.in_flight !== null && current.lock_until <= Date.now())
+    )
+      return { state: 'stop' };
+    if (
+      current.lock_until > Date.now() &&
+      (!opened.candidates.length || opened.candidates[opened.candidates.length - 1] > current.last_uid)
+    )
+      return { state: 'busy' };
+    return { state: 'ok', cursor: current.last_uid };
+  }
   const update = (sql: string, ...args: (string | number | null)[]) =>
     env.DB.prepare('UPDATE mailbox_relay SET ' + sql + " WHERE slot='active' AND lock_id=?")
       .bind(...args, run)
       .run();
   let uid: number | null = null;
+  let completed = false;
+  let submitting = false;
   try {
     const profile: MailboxProfile = JSON.parse(row.profile);
-    const auth = await routeAuth(env, row, profile);
-    await withInbox(profile, auth, async (client, validity) => {
+    const auth = opened?.auth ?? (await routeAuth(env, row, profile));
+    const drain = async (client: ImapFlow, validity: string): Promise<DrainResult> => {
       if (validity !== row.uid_validity) throw new RelayFailure('reset');
-      for (const next of await upcoming(client, row.last_uid)) {
+      let cursor = row.last_uid;
+      for (const next of opened?.candidates ?? (await upcoming(client, cursor))) {
+        if (next <= cursor) continue;
         uid = next;
         const content = await readNewMail(client, uid, profile);
         if (!content) {
-          if (!(await update('last_uid=?,problem=NULL', uid)).meta.changes) return;
+          if (!(await update('last_uid=?,problem=NULL', uid)).meta.changes) return { state: 'stop' };
+          cursor = uid;
           continue;
         }
         // Persist before talking to SMTP. A lost final acknowledgment must not cause an automatic duplicate.
         if (
           !(await update('in_flight=?,problem=NULL,lock_until=?', uid, Date.now() + leaseMs)).meta.changes
         )
-          return;
+          return { state: 'stop' };
+        submitting = true;
+        if (opened) opened.budget.submits--;
         const domain = profile.address.split('@')[1];
         const messageId = `<postway.${row.generation}.${validity}.${uid}@${domain}>`;
         await sendSmtp(profile, auth, content, messageId);
-        if (!(await update('last_uid=?,in_flight=NULL,sent_at=?', uid, Date.now())).meta.changes) return;
+        if (!(await update('last_uid=?,in_flight=NULL,sent_at=?', uid, Date.now())).meta.changes)
+          return { state: 'stop' };
+        cursor = uid;
         uid = null;
+        submitting = false;
       }
-    });
-    await update('problem=NULL');
+      completed = true;
+      return { state: 'ok', cursor };
+    };
+    return await (opened ? drain(opened.client, opened.validity) : withInbox(profile, auth, drain));
   } catch (error) {
     const issue: RelayIssue = error instanceof RelayFailure ? error.issue : 'imap';
+    if (issue === 'imap' && opened?.signal.aborted && !submitting) return { state: 'stop' };
     if (issue === 'oversize' || issue === 'message' || issue === 'uncertain' || issue === 'rejected') {
       await update('problem=?,in_flight=?', issue, uid);
     } else if (issue === 'smtp') {
@@ -57,8 +111,10 @@ export async function syncMailbox(env: RelayEnv) {
       // A database error after SMTP accepted DATA can also leave an unresolved attempt.
       await update("problem=CASE WHEN in_flight IS NULL THEN ? ELSE 'uncertain' END", issue);
     }
+    if (issue === 'imap') return { state: 'reconnect' };
+    return { state: issue === 'smtp' || issue === 'oauth' ? 'retry' : 'stop' };
   } finally {
-    await update('lock_id=NULL,lock_until=0');
+    await update(completed ? 'lock_id=NULL,lock_until=0,problem=NULL' : 'lock_id=NULL,lock_until=0');
   }
 }
 

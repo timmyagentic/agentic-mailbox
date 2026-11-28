@@ -33,6 +33,7 @@ export type MailboxStatus = {
     sentAt: number | null;
     issue: RelayIssue | null;
     busy: boolean;
+    listener?: 'connecting' | 'idle' | 'poll' | null;
   } | null;
   pending: { id: string; destination: string } | null;
 };

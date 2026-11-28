@@ -18,7 +18,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config wrangler.self-hosted.jsonc",
     "deploy:self-hosted": "npm run build && wrangler deploy --config wrangler.self-hosted.jsonc",
     "test:routing": "wrangler deploy --config wrangler.domain.jsonc --dry-run --outdir .wrangler/routing-test && node scripts/test-routing.mjs",
-    "test:self-hosted": "wrangler deploy --config wrangler.jsonc --dry-run --outdir .wrangler/imap-test && node scripts/test-self-hosted.mjs",
+    "test:self-hosted": "wrangler deploy --config wrangler.jsonc --dry-run --outdir .wrangler/imap-test && wrangler deploy scripts/fixtures/segment-worker.ts --config wrangler.jsonc --dry-run --outdir .wrangler/segment-test && node scripts/test-self-hosted.mjs",
     "init:self-hosted": "node scripts/init-self-hosted.mjs",
     "authorize:gmail": "node scripts/authorize-gmail.mjs"
   },

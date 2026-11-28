@@ -52,3 +52,29 @@ it('shows presets and submits the custom endpoints, then requires the code sent 
     smtp: { host: 'smtp.example.org', port: 587, tls: 'starttls' },
   });
 });
+
+it.each([
+  ['idle', '正在监听来信 · IMAP IDLE'],
+  ['poll', '正在检查来信 · 每 10 秒'],
+  [null, '等待监听任务启动'],
+] as const)('shows the negotiated receiving mode %s', async (listener, label) => {
+  vi.stubGlobal('fetch', async () =>
+    Response.json({
+      googleEnabled: false,
+      pending: null,
+      active: {
+        profile: { address: 'relay@example.org', destination: 'target@example.net' },
+        generation: 'test',
+        uidValidity: '42',
+        inFlight: null,
+        checkedAt: null,
+        sentAt: null,
+        issue: null,
+        busy: false,
+        listener,
+      },
+    }),
+  );
+  render(<MailboxRelay />);
+  expect(await screen.findByText(label)).toBeTruthy();
+});

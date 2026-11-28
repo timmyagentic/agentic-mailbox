@@ -17,6 +17,8 @@ export type Route = {
   lock_until: number;
   in_flight: number | null;
   problem: RelayIssue | null;
+  listener_mode: 'connecting' | 'idle' | 'poll' | null;
+  listener_until: number;
   checked_at: number | null;
   sent_at: number | null;
 };
@@ -44,6 +46,7 @@ export async function status(env: RelayEnv): Promise<MailboxStatus> {
           checkedAt: row.checked_at,
           sentAt: row.sent_at,
           busy,
+          listener: row.listener_until > Date.now() ? row.listener_mode : null,
           issue: row.problem ?? (row.in_flight && !busy ? 'uncertain' : null),
         }
       : null,
@@ -130,7 +133,8 @@ export async function confirmSetup(env: RelayEnv, id: unknown, code: unknown) {
     ON CONFLICT(slot) DO UPDATE SET generation=excluded.generation, profile=excluded.profile, credential=excluded.credential,
       uid_validity=CASE WHEN source_key=excluded.source_key THEN uid_validity ELSE excluded.uid_validity END,
       last_uid=CASE WHEN source_key=excluded.source_key THEN last_uid ELSE excluded.last_uid END,
-      source_key=excluded.source_key, lock_id=NULL, lock_until=0, checked_at=NULL, sent_at=NULL, problem=NULL
+      source_key=excluded.source_key, lock_id=NULL, lock_until=0, checked_at=NULL, sent_at=NULL, problem=NULL,
+      listener_epoch=-1, listener_token=NULL, listener_until=0, listener_mode=NULL
     WHERE lock_until <= ? AND in_flight IS NULL`,
     ).bind(id, await codeHash(id, code.trim().toUpperCase()), now, now),
     env.DB.prepare(
