@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agentic-mailbox",
-  "version": "0.1.3",
-  "description": "Search mail, refresh accounts, manage domain aliases and prepare or send drafts in an authorized Agentic Mailbox instance.",
+  "version": "0.2.0",
+  "description": "Manage forwarding destinations, relay addresses and domain aliases.",
   "author": {
     "name": "Agentic Mailbox contributors"
   },
@@ -11,14 +11,14 @@
     "com.openai": {
       "interface": {
         "displayName": "Agentic Mailbox",
-        "shortDescription": "Manage your connected inboxes",
+        "shortDescription": "Manage email forwarding",
         "category": "Productivity",
         "developerName": "Agentic Mailbox contributors",
         "capabilities": [
           "Read",
           "Write"
         ],
-        "defaultPrompt": "Search my connected inboxes and prepare a reply draft."
+        "defaultPrompt": "Show my forwarding destination and relay address."
       }
     }
   }

@@ -1,266 +1,159 @@
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { readFileSync, readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import PostalMime from 'postal-mime';
-import { ingestEmail } from '../src/worker/mail';
-import type { AliasRow, EmailWorkerMessage, Env } from '../src/worker/types';
+import worker from '../src/worker';
+import { createAlias } from '../src/worker/db';
+import { confirmDestination, getSettings, requestDestination, verifyDestination, cancelPending } from '../src/worker/forwarding';
+import type { Env, EmailWorkerMessage } from '../src/worker/types';
 
-const RAW_EMAIL = [
-  'From: GitHub <noreply@github.com>',
-  'To: signup@emomo.net',
-  'Message-ID: <verification-123@example.com>',
-  'Date: Sun, 19 Jul 2026 08:00:00 +0000',
-  'Subject: Verify your account',
-  'MIME-Version: 1.0',
-  'Content-Type: multipart/mixed; boundary="vault-boundary"',
-  '',
-  '--vault-boundary',
-  'Content-Type: text/plain; charset=utf-8',
-  '',
-  'Your verification code is 123456.',
-  '--vault-boundary',
-  'Content-Type: text/plain; name="code.txt"',
-  'Content-Disposition: attachment; filename="code.txt"',
-  'Content-Transfer-Encoding: base64',
-  '',
-  'Y29kZT0xMjM0NTY=',
-  '--vault-boundary--',
-  '',
-].join('\r\n');
-
-class FakeStatement {
-  params: unknown[] = [];
-
-  constructor(readonly sql: string, private readonly alias: AliasRow | null, private readonly duplicate = false) {}
-
-  bind(...params: unknown[]) {
-    this.params = params;
-    return this;
+function testDatabase(db: DatabaseSync) {
+  function statement(sql: string, values: SQLInputValue[] = []) {
+    return {
+      bind: (...next: SQLInputValue[]) => statement(sql, next),
+      first: async () => db.prepare(sql).get(...values) ?? null,
+      run: async () => ({ meta: db.prepare(sql).run(...values) }),
+    };
   }
-
-  async first<T>(): Promise<T | null> {
-    if (this.sql.includes('FROM aliases')) {
-      return this.alias as T | null;
-    }
-    if (this.sql.includes('SELECT id FROM emails')) {
-      return this.duplicate ? { id: 'existing-email' } as T : null;
-    }
-    return null;
-  }
+  return { prepare: statement };
 }
 
-class FakeDatabase {
-  duplicate = false;
-  statements: FakeStatement[] = [];
-  batches: FakeStatement[][] = [];
-
-  constructor(readonly alias: AliasRow | null) {}
-
-  prepare(sql: string) {
-    const statement = new FakeStatement(sql, this.alias, this.duplicate);
-    this.statements.push(statement);
-    return statement;
-  }
-
-  async batch(statements: FakeStatement[]) {
-    this.batches.push(statements);
-    return [];
-  }
+function message(to: string, headers = new Headers()) {
+  const forwarded = vi.fn().mockResolvedValue({ messageId: 'fixture' });
+  const rejected = vi.fn();
+  return { forwarded, rejected, event: {
+    to, headers, forward: forwarded, setReject: rejected,
+    get raw() { throw Error('The forwarding worker opened the MIME stream'); },
+  } as unknown as EmailWorkerMessage };
 }
 
-class FakeBucket {
-  objects = new Map<string, Uint8Array>();
-
-  async put(key: string, value: Uint8Array) {
-    this.objects.set(key, value);
-    return {};
-  }
-
-  async delete(keys: string | string[]) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) {
-      this.objects.delete(key);
-    }
-  }
-}
-
-function makeAlias(): AliasRow {
-  const now = new Date().toISOString();
-  return {
-    id: 'alias-1',
-    local_part: 'signup',
-    domain: 'emomo.net',
-    address: 'signup@emomo.net',
-    label: 'Signup',
-    status: 'active',
-    routing_mode: 'managed',
-    note: '',
-    created_at: now,
-    updated_at: now,
-    last_received_at: null,
-    message_count: 0,
-  };
-}
-
-function makeMessage() {
-  let rejectReason = '';
-  const forwarded: string[] = [];
-  const bytes = new TextEncoder().encode(RAW_EMAIL);
-  const message = {
-    from: 'noreply@github.com',
-    to: 'signup@emomo.net',
-    headers: new Headers({
-      subject: 'Verify your account',
-      'message-id': '<verification-123@example.com>',
-      date: 'Sun, 19 Jul 2026 08:00:00 +0000',
-    }),
-    raw: new ReadableStream({
-      start(controller) {
-        controller.enqueue(bytes);
-        controller.close();
-      },
-    }),
-    rawSize: bytes.byteLength,
-    setReject(reason: string) {
-      rejectReason = reason;
-    },
-    async forward(recipient: string) {
-      forwarded.push(recipient);
-      return { delivered: true };
-    },
-  } as unknown as EmailWorkerMessage;
-  return { message, forwarded, getRejectReason: () => rejectReason };
-}
-
-function makeEnv(alias: AliasRow | null) {
-  const database = new FakeDatabase(alias);
-  const bucket = new FakeBucket();
-  const env = {
-    DB: database,
-    ATTACHMENTS: bucket,
-    PRIMARY_DOMAIN: 'emomo.net',
-    FORWARD_TO: 'owner@example.com',
-  } as unknown as Env;
-  return { env, database, bucket };
-}
-
-describe('inbound email ingestion', () => {
-  it('stores a parsed email and attachment, then forwards it', async () => {
-    const { env, database, bucket } = makeEnv(makeAlias());
-    const { message, forwarded, getRejectReason } = makeMessage();
-    await ingestEmail(message, env);
-
-    expect(getRejectReason()).toBe('');
-    expect(bucket.objects.size).toBe(1);
-    expect(database.batches).toHaveLength(1);
-    expect(database.batches[0]).toHaveLength(3);
-    expect(database.batches[0][0].params).toContain('Verify your account');
-    expect(database.batches[0][0].params).toContain('Your verification code is 123456.');
-    expect(forwarded).toEqual(['owner@example.com']);
-  });
-
-  it('rejects an address that is not registered', async () => {
-    const { env, database, bucket } = makeEnv(null);
-    const { message, getRejectReason } = makeMessage();
-    await ingestEmail(message, env);
-
-    expect(getRejectReason()).toBe('Mailbox is not registered or is disabled');
-    expect(database.batches).toHaveLength(0);
-    expect(bucket.objects.size).toBe(0);
-  });
-});
-
-
-function diagnostics() {
-  return [console.info, console.warn, console.error].flatMap((fn) => vi.mocked(fn).mock.calls).map(([line]) => JSON.parse(String(line)));
-}
+let sql: DatabaseSync;
+let env: Env;
+let verified: boolean;
+let code: string;
+const target = 'owner+mail@example.org';
+const other = 'other@example.org';
+const owner = 'member:alice';
+const send = vi.fn();
+let registry: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  vi.spyOn(console, 'info').mockImplementation(() => {});
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
+  sql = new DatabaseSync(':memory:');
+  for (const file of readdirSync('migrations').sort()) sql.exec(readFileSync('migrations/' + file, 'utf8'));
+  env = { PRIMARY_DOMAIN: 'mail.example.org', FORWARD_TO: 'old@example.org',
+    DB: testDatabase(sql), EMAIL: { send }, ROUTING_ACCOUNT_ID: 'fixture', ROUTING_API_TOKEN: 'test' } as unknown as Env;
+  verified = false;
+  code = '';
+  const known = new Set<string>();
+  registry = vi.fn(async (_url: string, init: RequestInit) => {
+    const result = init.method === 'POST' ? JSON.parse(String(init.body)) as { email: string }
+      : [...known].map(email => ({ email, verified: verified ? '2026-01-01' : null }));
+    if (!Array.isArray(result)) known.add(result.email);
+    return Response.json({ success: true, result, result_info: { total_pages: 1 } });
+  });
+  vi.stubGlobal('fetch', registry);
+  send.mockReset().mockImplementation(async ({ text }) => { code = text.match(/[0-9A-F]{12}/)[0]; });
+  for (const level of ['info','warn','error'] as const) vi.spyOn(console, level).mockImplementation(() => {});
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { sql.close(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-const PRIVATE_ERROR = 'recipient=private@example.com code=654321 password=never-log-this';
+describe('forwarding delivery', () => {
+  it('forwards existing managed aliases before first login, without storing or parsing any content', async () => {
+    await createAlias(env, { localPart: 'signup' });
+    const mail = message('Signup@mail.example.org');
+    await worker.email(mail.event, env);
+    expect(mail.forwarded).toHaveBeenCalledOnce();
+    expect(mail.forwarded.mock.calls[0][0]).toBe('old@example.org');
+    expect(mail.forwarded.mock.calls[0][1].get('X-Agentic-Mailbox-Original-To')).toBe('signup@mail.example.org');
+    expect(sql.prepare('SELECT count(*) AS n FROM emails').get()?.n).toBe(0);
+    expect(sql.prepare('SELECT count(*) AS n FROM attachments').get()?.n).toBe(0);
+  });
 
-describe('email diagnostics and failure semantics', () => {
-  it('records successful ingestion and forwarding without MIME content', async () => {
-    const { env } = makeEnv(makeAlias());
-    await ingestEmail(makeMessage().message, env);
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingested', forwarding: 'succeeded', attachmentCount: 1, processingId: expect.any(String), durationMs: expect.any(Number) }));
-    const output = JSON.stringify(diagnostics());
-    for (const value of ['signup@emomo.net', 'noreply@github.com', 'Verify your account', '123456', 'code.txt', 'verification-123@example.com']) {
-      expect(output).not.toContain(value);
+  it('rejects disabled, unknown, external, wrong-domain, looping and unconfigured recipients', async () => {
+    await createAlias(env, { localPart: 'disabled' });
+    await createAlias(env, { localPart: 'external' });
+    sql.exec("UPDATE aliases SET status='disabled' WHERE local_part='disabled'; UPDATE aliases SET routing_mode='external' WHERE local_part='external'");
+    const member = await getSettings(env, owner);
+    for (const to of ['disabled@mail.example.org','unknown@mail.example.org','external@mail.example.org','other@example.org',member.relay]) {
+      const mail = message(to);
+      await worker.email(mail.event, env);
+      expect(mail.rejected).toHaveBeenCalledOnce(); expect(mail.forwarded).not.toHaveBeenCalled();
     }
+    const mail = message((await getSettings(env, 'admin')).relay, new Headers({ 'X-Agentic-Mailbox-Relay': 'mail.example.org' }));
+    await worker.email(mail.event, env);
+    expect(mail.rejected).toHaveBeenCalledOnce();
   });
 
-  it('distinguishes domain and mailbox rejection without storing a message', async () => {
-    const { env, database } = makeEnv(null);
-    const { message } = makeMessage();
-    await ingestEmail({ ...message, to: 'private@other.example' } as EmailWorkerMessage, env);
-    await ingestEmail(makeMessage().message, env);
-    expect(diagnostics().map((row) => row.reason)).toEqual(['unmanaged_domain', 'unregistered_or_disabled']);
-    expect(database.batches).toHaveLength(0);
-    expect(JSON.stringify(diagnostics())).not.toContain('private@other.example');
+  it('propagates a transport failure and lets a later delivery attempt forward', async () => {
+    const mail = message((await getSettings(env, 'admin')).relay);
+    mail.forwarded.mockRejectedValueOnce(Error('private transport detail'));
+    await expect(worker.email(mail.event, env)).rejects.toThrow('Email forwarding failed');
+    await worker.email(mail.event, env);
+    expect(mail.forwarded).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain('private transport detail');
+  });
+});
+
+describe('destination enrollment', () => {
+  it('requires Cloudflare verification and owner-specific proof; switches all that owner’s routes atomically', async () => {
+    await createAlias(env, { localPart: 'orders' });
+    const admin = await requestDestination(env, 'admin', target);
+    expect(admin).toMatchObject({ step: 'provider', pending: target, destination: 'old@example.org' });
+    expect(send).not.toHaveBeenCalled();
+    verified = true;
+    const pending = await verifyDestination(env, 'admin', target);
+    expect(pending.step).toBe('code');
+    expect(send).toHaveBeenCalledOnce();
+    const their = await getSettings(env, owner);
+    expect(their.destination).toBeNull();
+    await expect(confirmDestination(env, owner, code)).rejects.toThrow();
+    expect((await confirmDestination(env, 'admin', code)).destination).toBe(target);
+    await expect(confirmDestination(env, 'admin', code)).rejects.toThrow();
+    for (const to of [admin.relay, 'orders@mail.example.org']) {
+      const mail = message(to);
+      await worker.email(mail.event, env);
+      expect(mail.forwarded.mock.calls[0][0]).toBe(target);
+    }
+    const member = await requestDestination(env, owner, other);
+    await verifyDestination(env, owner, other);
+    await confirmDestination(env, owner, code);
+    const mail = message(member.relay);
+    await worker.email(mail.event, env);
+    expect(mail.forwarded.mock.calls[0][0]).toBe(other);
   });
 
-  it('records duplicate skips without storing or forwarding again', async () => {
-    const { env, database, bucket } = makeEnv(makeAlias());
-    database.duplicate = true;
-    const { message, forwarded } = makeMessage();
-    await ingestEmail(message, env);
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_duplicate', aliasId: 'alias-1' }));
-    expect(database.batches).toHaveLength(0);
-    expect(bucket.objects.size).toBe(0);
-    expect(forwarded).toHaveLength(0);
+  it('preserves the active route through outages, cancels, replaced requests and expired codes', async () => {
+    const first = await requestDestination(env, 'admin', target);
+    verified = true; await verifyDestination(env, 'admin', target);
+    const stale = code;
+    await requestDestination(env, 'admin', other);
+    await expect(confirmDestination(env, 'admin', stale)).rejects.toThrow();
+    send.mockRejectedValueOnce(Error('fixture outage'));
+    await expect(verifyDestination(env, 'admin', other)).rejects.toThrow();
+    expect((await getSettings(env, 'admin')).destination).toBe(first.destination);
+    await verifyDestination(env, 'admin', other);
+    sql.exec('UPDATE forwarding_settings SET code_sent_at=0');
+    await expect(confirmDestination(env, 'admin', code)).rejects.toThrow();
+    expect(await cancelPending(env, 'admin')).toMatchObject({ destination: first.destination, pending: null });
+    registry.mockRejectedValue(Error('offline'));
+    await expect(requestDestination(env, 'admin', other)).rejects.toThrow('Cloudflare');
+    expect((await getSettings(env, 'admin')).destination).toBe(first.destination);
   });
 
-  it('keeps stored mail accessible when forwarding fails and logs the partial failure safely', async () => {
-    const { env, database, bucket } = makeEnv(makeAlias());
-    const { message } = makeMessage();
-    message.forward = vi.fn().mockRejectedValue(new Error(PRIVATE_ERROR));
-    await ingestEmail(message, env);
-    expect(database.batches).toHaveLength(1);
-    expect(bucket.objects.size).toBe(1);
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'forward_failed', level: 'error' }));
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingested', forwarding: 'failed' }));
-    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
+  it('declines invalid and managed domains and never sends a verification message to them', async () => {
+    for (const target of ['x@mail.example.org', 'x@bad..com', 'x@bad.-com', 'a@example.org\nBcc: b@test.com']) {
+      await expect(requestDestination(env, owner, target)).rejects.toThrow();
+    }
+    expect(registry).not.toHaveBeenCalled();
   });
 
-  it('reports MIME failures by stage and prevents raw errors reaching platform logs', async () => {
-    vi.spyOn(PostalMime, 'parse').mockRejectedValue(new Error(PRIVATE_ERROR));
-    const { env, database } = makeEnv(makeAlias());
-    await expect(ingestEmail(makeMessage().message, env)).rejects.toThrow(/^Email processing failed \([0-9a-f-]+\)$/);
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'parse' }));
-    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
-    expect(database.batches).toHaveLength(0);
-  });
-
-  it('reports R2 failures without attempting database persistence', async () => {
-    const { env, database, bucket } = makeEnv(makeAlias());
-    vi.spyOn(bucket, 'put').mockRejectedValue(new Error(PRIVATE_ERROR));
-    await expect(ingestEmail(makeMessage().message, env)).rejects.toThrow('Email processing failed');
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'attachments' }));
-    expect(database.batches).toHaveLength(0);
-    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
-  });
-
-  it('cleans uploaded objects on database failure and preserves failure for retry', async () => {
-    const { env, database, bucket } = makeEnv(makeAlias());
-    vi.spyOn(database, 'batch').mockRejectedValue(new Error(PRIVATE_ERROR));
-    const { message, forwarded } = makeMessage();
-    await expect(ingestEmail(message, env)).rejects.toThrow('Email processing failed');
-    expect(bucket.objects.size).toBe(0);
-    expect(forwarded).toHaveLength(0);
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'database' }));
-    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
-  });
-
-  it('records cleanup failures separately from the original database failure', async () => {
-    const { env, database, bucket } = makeEnv(makeAlias());
-    vi.spyOn(database, 'batch').mockRejectedValue(new Error(PRIVATE_ERROR));
-    vi.spyOn(bucket, 'delete').mockRejectedValue(new Error(PRIVATE_ERROR));
-    await expect(ingestEmail(makeMessage().message, env)).rejects.toThrow('Email processing failed');
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'attachment_cleanup_failed', attachmentCount: 1 }));
-    expect(diagnostics()).toContainEqual(expect.objectContaining({ event: 'email_ingest_failed', stage: 'database' }));
-    expect(JSON.stringify(diagnostics())).not.toContain(PRIVATE_ERROR);
+  it('recognizes addresses on later Cloudflare pages and suppresses immediate duplicate sends', async () => {
+    registry.mockImplementation(async (href: string) => {
+      const last = href.includes('page=2&');
+      return Response.json({ success: true, result: last ? [{ email: target, verified: 'date' }] : [], result_info: { total_pages: 2 } });
+    });
+    const state = await requestDestination(env, owner, target);
+    expect(state.step).toBe('code');
+    await verifyDestination(env, owner, target);
+    expect(send).toHaveBeenCalledOnce();
   });
 });

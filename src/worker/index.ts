@@ -1,33 +1,13 @@
-import { chatGPTCallback } from './chatgpt';
-import { routeMember } from './members';
 import { handleApi } from './api';
 import { apiError, HttpError, withSecurityHeaders } from './http';
-import { ingestEmail } from './mail';
+import { forwardEmail } from './mail';
 import { elapsedMs, logEvent, requestMethod, requestRoute } from './logging';
 import type { EmailWorkerMessage, Env } from './types';
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  if (env.LOCAL_MODE === '1' && !['127.0.0.1', 'localhost'].includes(url.hostname)) {
-    throw new HttpError(403, 'invalid_local_host', '请使用本机地址。');
-  }
-  if (env.MEMBERS && ['GET', 'HEAD'].includes(request.method) && url.pathname === '/downloads/mailbox-vault-mac-arm64.zip') {
-    return Response.redirect(new URL('/downloads/agentic-mailbox-mac-arm64.zip', url), 308);
-  }
-  if (env.MEMBERS && url.pathname === '/downloads/agentic-mailbox-mac-arm64.zip' && ['GET', 'HEAD'].includes(request.method)) {
-    const archive = await env.ATTACHMENTS.get('releases/agentic-mailbox-mac-arm64.zip');
-    if (!archive) throw new HttpError(404, 'download_missing', '本地版安装包暂不可用。');
-    return new Response(request.method === 'HEAD' ? null : archive.body, { headers: {
-      'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="agentic-mailbox-mac-arm64.zip"',
-      'Content-Length': String(archive.size), 'ETag': archive.httpEtag,
-    } });
-  }
-  if (env.LOCAL_MODE === '1' && env.CHATGPT && url.pathname === '/auth/callback' && request.method === 'GET') {
-    return chatGPTCallback(url);
-  }
-  if (url.pathname.startsWith('/api/')) {
-    return await routeMember(request, env) ?? handleApi(request, env);
-  }
+  if (url.pathname.startsWith('/downloads/')) throw new HttpError(410, 'client_retired', '独立客户端已退役，请打开首页设置邮件转发。');
+  if (url.pathname.startsWith('/api/')) return handleApi(request, env);
 
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     throw new HttpError(405, 'method_not_allowed', '请求方法不支持。');
@@ -62,6 +42,6 @@ export default {
   },
 
   async email(message: EmailWorkerMessage, env: Env): Promise<void> {
-    await ingestEmail(message, env);
+    await forwardEmail(message, env);
   },
 } satisfies ExportedHandler<Env>;

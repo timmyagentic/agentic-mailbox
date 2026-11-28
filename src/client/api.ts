@@ -1,21 +1,3 @@
-import type {
-  AttachmentItem,
-  BootstrapPayload,
-  Conversation,
-  ConversationSummary,
-  DraftFile,
-  DraftInput,
-  MailDraft,
-  MailFolder,
-  EmailDetail,
-  EmailSummary,
-  MailAlias,
-  MailAccount,
-  MailRefreshResult,
-  OAuthProvider,
-  SessionPayload,
-} from '../shared/types';
-
 export class ApiRequestError extends Error {
   readonly status: number;
   readonly code: string;
@@ -30,7 +12,7 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -67,82 +49,3 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return payload as T;
 }
-
-export const mailboxApi = {
-  startChatGPT: (intent: 'login' | 'link') =>
-    api<{ url: string }>('/api/chatgpt/start', { method: 'POST', body: JSON.stringify({ intent }) }),
-  finishChatGPT: (params: URLSearchParams) =>
-    api<SessionPayload>('/api/chatgpt/finish', { method: 'POST', body: JSON.stringify(Object.fromEntries(params)) }),
-  disconnectChatGPT: () => api<{ revoked: boolean }>('/api/chatgpt/disconnect', { method: 'POST', body: '{}' }),
-  connectCodex: () => api<{ profile: string }>('/api/codex/connect', { method: 'POST', body: '{}' }),
-  unlockLocal: (ticket: string) => api<SessionPayload>('/api/session/local', { method: 'POST', body: JSON.stringify({ ticket }) }),
-  memberLogin: (username: string, password: string, register: boolean) =>
-    api<SessionPayload>(register ? '/api/members/register' : '/api/members/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
-  session: () => api<SessionPayload>('/api/session'),
-  login: (password: string) =>
-    api<SessionPayload>('/api/session', { method: 'POST', body: JSON.stringify({ password }) }),
-  loginWithCertificate: () =>
-    api<SessionPayload>('/api/session/certificate', { method: 'POST', body: '{}' }),
-  logout: () => api<SessionPayload>('/api/session', { method: 'DELETE' }),
-  bootstrap: () => api<BootstrapPayload>('/api/bootstrap'),
-  aliases: () => api<{ aliases: MailAlias[] }>('/api/aliases?limit=100'),
-  createAlias: (input: { localPart?: string; label: string; note?: string; generate: boolean }) =>
-    api<{ alias: MailAlias }>('/api/aliases', { method: 'POST', body: JSON.stringify(input) }),
-  updateAlias: (id: string, input: { label?: string; note?: string; status?: 'active' | 'disabled' }) =>
-    api<{ alias: MailAlias }>(`/api/aliases/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(input),
-    }),
-  startMailOAuth: (provider: OAuthProvider, accountId?: string) =>
-    api<{ url: string }>(`/api/oauth/${provider}/start`, { method: 'POST', body: JSON.stringify({ accountId }) }),
-  finishMailOAuth: (provider: OAuthProvider, response: { state: string | null; code: string | null; error: string | null }) =>
-    api<{ ok: true; accountId: string }>(`/api/oauth/${provider}/finish`, { method: 'POST', body: JSON.stringify(response) }),
-  saveMailAccount: (input: { email: string; authorizationCode: string }) =>
-    api<{ account: MailAccount }>('/api/mail-accounts', { method: 'POST', body: JSON.stringify(input) }),
-  refreshMailAccount: (id: string) =>
-    api<{ result: MailRefreshResult }>(`/api/mail-accounts/${encodeURIComponent(id)}/refresh`, { method: 'POST' }),
-  emails: (filter: { aliasId?: string; query?: string; unreadOnly?: boolean; signal?: AbortSignal } = {}) => {
-    const params = new URLSearchParams({ limit: '100' });
-    if (filter.aliasId) params.set('aliasId', filter.aliasId);
-    if (filter.query) params.set('q', filter.query);
-    if (filter.unreadOnly) params.set('unread', '1');
-    return api<{ emails: EmailSummary[] }>(`/api/emails?${params}`, { signal: filter.signal });
-  },
-  conversations: (filter: { folder: MailFolder; page?: number; aliasId?: string; query?: string; unreadOnly?: boolean; signal?: AbortSignal }) => {
-    const params = new URLSearchParams({ folder: filter.folder, page: String(filter.page ?? 1) });
-    if (filter.aliasId) params.set('aliasId', filter.aliasId);
-    if (filter.query) params.set('q', filter.query);
-    if (filter.unreadOnly) params.set('unread', '1');
-    return api<{ conversations: ConversationSummary[]; total: number }>(`/api/conversations?${params}`, { signal: filter.signal });
-  },
-  conversation: (id: string, signal?: AbortSignal) =>
-    api<Conversation>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
-  markConversation: (id: string, read: boolean) =>
-    api<{ ok: true }>(`/api/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ read }) }),
-  placeEmail: (id: string, update: { starred?: boolean; folder?: 'archive' | 'trash' | 'restore' }) =>
-    api<{ ok: true }>(`/api/emails/${encodeURIComponent(id)}/placement`, { method: 'PATCH', body: JSON.stringify(update) }),
-  drafts: (signal?: AbortSignal) => api<{ drafts: MailDraft[] }>('/api/drafts', { signal }),
-  draft: (id: string) => api<{ draft: MailDraft }>(`/api/drafts/${encodeURIComponent(id)}`),
-  saveDraft: (body: DraftInput, id?: string) => api<{ draft: MailDraft }>(
-    id ? `/api/drafts/${encodeURIComponent(id)}` : '/api/drafts',
-    { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) },
-  ),
-  discardDraft: (id: string) => api<{ ok: true }>(`/api/drafts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  sendDraft: (id: string) => api<{ id: string; rejected: string[] }>(`/api/drafts/${encodeURIComponent(id)}/send`, { method: 'POST', body: '{}' }),
-  suggestDraft: (id: string, instruction: string) =>
-    api<{ text: string }>(`/api/drafts/${encodeURIComponent(id)}/suggest`, { method: 'POST', body: JSON.stringify({ instruction }) }),
-  addDraftFile: (id: string, file: File) => api<{ file: DraftFile }>(
-    `/api/drafts/${encodeURIComponent(id)}/files?name=${encodeURIComponent(file.name)}`,
-    { method: 'POST', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } },
-  ),
-  removeDraftFile: (id: string, fileId: string) => api<{ ok: true }>(
-    `/api/drafts/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' },
-  ),
-  email: (id: string) => api<{ email: EmailDetail }>(`/api/emails/${encodeURIComponent(id)}`),
-  setEmailRead: (id: string, read: boolean) =>
-    api<{ ok: boolean }>(`/api/emails/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ read }),
-    }),
-  files: () => api<{ files: AttachmentItem[] }>('/api/files?limit=100'),
-};

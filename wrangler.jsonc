@@ -2,15 +2,6 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "agentic-mailbox-local",
   "main": "src/worker/entry.ts",
-  "rules": [
-    {
-      "type": "Text",
-      "globs": [
-        "**/*.sql"
-      ],
-      "fallthrough": true
-    }
-  ],
   "durable_objects": {
     "bindings": [
       {
@@ -49,26 +40,15 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": true
   },
-  "ai": {
-    "binding": "AI"
-  },
   "send_email": [
     {
       "name": "EMAIL"
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "ATTACHMENTS",
-      "bucket_name": "agentic-mailbox-local-attachments"
-    }
-  ],
   "vars": {
     "APP_NAME": "Agentic Mailbox",
-    "MAIL_OAUTH_ORIGIN": "http://localhost:8787",
     "PRIMARY_DOMAIN": "example.invalid",
-    "ADMIN_EMAIL": "owner@example.invalid",
-    "FORWARD_TO": "owner@example.invalid"
+    "ADMIN_EMAIL": "owner@example.invalid"
   },
   "observability": {
     "enabled": true,

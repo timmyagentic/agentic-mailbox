@@ -24,28 +24,6 @@ export function normalizeAddress(value: string): string | null {
   return `${localPart}@${domain}`;
 }
 
-export function truncateText(value: string, maxLength: number): string {
-  return Array.from(value, (character) => (character.charCodeAt(0) === 0 ? '' : character))
-    .join('')
-    .slice(0, maxLength);
-}
-
-export function buildPreview(value: string, maxLength = 220): string {
-  return truncateText(value.replace(/\s+/g, ' ').trim(), maxLength);
-}
-
-export function safeFilename(value: string | undefined, fallback: string): string {
-  const normalized = Array.from(value ?? '', (character) => {
-    const code = character.charCodeAt(0);
-    return code <= 31 || code === 127 ? '' : character;
-  })
-    .join('')
-    .replace(/[\\/]/g, '-')
-    .trim()
-    .slice(0, 180);
-  return normalized || fallback;
-}
-
 export function slugifyPurpose(value: string): string {
   const slug = value
     .trim()

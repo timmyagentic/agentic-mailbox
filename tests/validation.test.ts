@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildPreview,
   isValidLocalPart,
   normalizeAddress,
-  safeFilename,
   slugifyPurpose,
 } from '../src/shared/validation';
 
@@ -19,9 +17,7 @@ describe('mailbox validation', () => {
     expect(normalizeAddress('two@@emomo.net')).toBeNull();
   });
 
-  it('builds bounded previews and storage-safe filenames', () => {
-    expect(buildPreview('hello\n\n world', 20)).toBe('hello world');
-    expect(safeFilename('../invoice\u0000.pdf', 'file')).toBe('..-invoice.pdf');
+  it('generates alias labels from a purpose', () => {
     expect(slugifyPurpose('GitHub Registration')).toBe('github-registration');
     expect(slugifyPurpose('注册用途')).toBe('box');
   });

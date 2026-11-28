@@ -45,40 +45,8 @@ jobs:
       - run: npm ci
       - run: npm run check
 
-  build-mac:
-    needs: verify
-    runs-on: macos-15
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - name: Build Apple Silicon Mac ZIP
-        run: |
-          npm run build
-          npx --no-install wrangler deploy --dry-run --outdir .wrangler/local-worker
-          node scripts/package-mac.mjs
-      - name: Verify the extracted installer
-        run: |
-          bash scripts/check-mac-package.sh outputs/agentic-mailbox-mac-arm64.zip
-          cd outputs
-          shasum -a 256 agentic-mailbox-mac-arm64.zip > SHA256SUMS
-      - uses: actions/upload-artifact@v7
-        with:
-          name: mac-arm64
-          if-no-files-found: error
-          retention-days: 7
-          path: |
-            outputs/agentic-mailbox-mac-arm64.zip
-            outputs/SHA256SUMS
-
   publish:
-    needs: [verify, build-mac]
+    needs: verify
     if: needs.verify.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -86,12 +54,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v8
-        with:
-          name: mac-arm64
-          path: release-assets
-      - name: Publish and verify the GitHub Release
-        shell: bash
+      - name: Publish the source release
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
@@ -99,27 +62,7 @@ jobs:
           tag="$GITHUB_REF_NAME"
           git fetch --no-tags origin "refs/tags/$tag"
           test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$(git rev-parse HEAD)"
-
-          cd release-assets
-          sha256sum --check SHA256SUMS
-          assets=(agentic-mailbox-mac-arm64.zip SHA256SUMS)
-          if release=$(gh release view "$tag" --json isDraft,author); then
-            if [[ "$(jq -r .isDraft <<< "$release")" == true ]]; then
-              if [[ "$(jq -r .author.login <<< "$release")" != 'github-actions[bot]' ]]; then
-                echo "A manually created draft already exists for $tag." >&2
-                exit 1
-              fi
-              gh release upload "$tag" "${assets[@]}" --clobber
-              gh release edit "$tag" --draft=false --prerelease="$PRERELEASE"
-            fi
-          else
-            gh release create "$tag" "${assets[@]}" --verify-tag \
-              --title "Agentic Mailbox $tag" --generate-notes --prerelease="$PRERELEASE"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --verify-tag --title "Agentic Mailbox $tag" --generate-notes --prerelease="$PRERELEASE"
           fi
-
           test "$(gh release view "$tag" --json isDraft,isPrerelease --jq '[.isDraft,.isPrerelease]|join(",")')" = "false,$PRERELEASE"
-          mkdir verified-downloads
-          gh release download "$tag" --dir verified-downloads \
-            --pattern agentic-mailbox-mac-arm64.zip --pattern SHA256SUMS
-          cd verified-downloads
-          sha256sum --check SHA256SUMS

@@ -1,5 +1,5 @@
-import { createSessionToken, readSessionCookie, sessionCookie, verifySessionToken } from './auth';
-import { assertSameOrigin, HttpError, json, readJson } from './http';
+import { createSessionToken, readSessionCookie, verifySessionToken } from './auth';
+import { assertSameOrigin, HttpError, readJson } from './http';
 import type { Env } from './types';
 
 const usernamePattern = /^[a-z0-9][a-z0-9_-]{2,39}$/;
@@ -22,7 +22,7 @@ export async function routeMember(request: Request, env: Env): Promise<Response 
     if (result && !result.success) throw new HttpError(429, 'auth_rate_limit', '请稍后再试。');
     const body = await readJson<{ username?: unknown; password?: unknown }>(request);
     const username = typeof body?.username === 'string' ? body.username.toLowerCase().trim() : '';
-    if (!usernamePattern.test(username) || typeof body.password !== 'string' || body.password.length < 12 || body.password.length > 256) {
+    if (!usernamePattern.test(username) || typeof body?.password !== 'string' || body.password.length < 12 || body.password.length > 256) {
       throw new HttpError(400, 'invalid_login', '用户名为 3–40 位字母、数字、下划线或短横线，密码需 12–256 位。');
     }
     return namespace.getByName(username).fetch(new Request(url, {
@@ -30,19 +30,13 @@ export async function routeMember(request: Request, env: Env): Promise<Response 
       body: JSON.stringify({ password: body.password }),
     }));
   }
-  // These routes belong to the site itself, including the unauthenticated OAuth landing page.
-  if ((path === '/api/session' && request.method !== 'GET') || path === '/api/session/certificate'
-    || path === '/api/health' || /^\/api\/oauth\/(gmail|outlook)\/callback$/.test(path)) return null;
+  return null;
+}
+
+export async function memberUsername(request: Request, env: Env): Promise<string | null> {
   const raw = readSessionCookie(request);
-  if (!raw?.startsWith('member:')) return null;
-  const [, username, token] = raw.split(':');
-  if (!usernamePattern.test(username) || !await verifySessionToken(token ?? '', username, memberSecret(env))) {
-    if (path === '/api/session') return json({ authenticated: false, user: null, edition: 'hosted' });
-    throw new HttpError(401, 'authentication_required', '请重新登录。');
-  }
-  if (path === '/api/session') return json({ authenticated: true, user: { email: username }, edition: 'hosted' });
-  const forwarded = new Request(request);
-  forwarded.headers.set('Cookie', sessionCookie(token, request.url).split(';')[0]);
-  forwarded.headers.set('X-Agentic-Mailbox-User', username);
-  return namespace.getByName(username).fetch(forwarded);
+  if (!env.MEMBERS || !raw?.startsWith('member:')) return null;
+  const [, username, token, extra] = raw.split(':');
+  if (extra !== undefined || !usernamePattern.test(username) || !await verifySessionToken(token ?? '', username, memberSecret(env))) return null;
+  return username;
 }

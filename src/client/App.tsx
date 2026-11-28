@@ -1,457 +1,69 @@
-import { AlertCircle, CheckCircle2, X } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import type {
-  AttachmentItem,
-  BootstrapPayload,
-  DashboardStats,
-  EmailSummary,
-  MailAlias,
-  MailRefreshResult,
-  OAuthProvider,
-} from '../shared/types';
-import { ApiRequestError, mailboxApi } from './api';
-import type { ViewName } from './workbench/InboxWorkbench';
-import { AliasesView } from './views/AliasesView';
-import { FilesView } from './views/FilesView';
-import { ConnectedMailboxes, type MailboxConnectionResult } from './views/ConnectedMailboxes';
-import { LoginView } from './views/LoginView';
-import { OverviewView } from './views/OverviewView';
+import { useEffect, useState, type FormEvent } from 'react';
+import type { SessionPayload } from '../shared/types';
+import { api } from './api';
+import Forwarding from './Forwarding';
 
-const InboxWorkbench = lazy(() => import('./workbench/InboxWorkbench'));
-const reconnectStorageKey = 'agentic-mailbox-oauth-reconnect';
+type Mode = 'member' | 'admin' | 'register';
 
-function takeReconnectTarget(provider: OAuthProvider): string | undefined {
-  try {
-    const target = window.sessionStorage.getItem(reconnectStorageKey);
-    window.sessionStorage.removeItem(reconnectStorageKey);
-    return target?.startsWith(`${provider}:`) ? target.slice(provider.length + 1) : undefined;
-  } catch {
-    return undefined;
+function Login({ hosted, onLogin }: { hosted: boolean; onLogin: () => Promise<void> }) {
+  const [mode, setMode] = useState<Mode>(hosted ? 'member' : 'admin');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function submit(certificate: boolean) {
+    setBusy(true); setError('');
+    try {
+      const path = certificate ? '/api/session/certificate' : mode === 'admin' ? '/api/session' :
+        '/api/members/' + (mode === 'register' ? 'register' : 'login');
+      await api(path, { method: 'POST', body: JSON.stringify(certificate ? {} : { username, password }) });
+      await onLogin();
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
   }
+  function change(next: Mode) { setMode(next); setPassword(''); setError(''); }
+  function onSubmit(event: FormEvent) { event.preventDefault(); void submit(false); }
+  return <main className="login">
+    <h1>{mode === 'register' ? '创建转发账号' : mode === 'admin' ? '管理员登录' : '登录转发设置'}</h1>
+    <p>选择一个常用邮箱，以后在那里接收新邮件。</p>
+    <form onSubmit={onSubmit}>
+      <fieldset disabled={busy}>
+        {mode !== 'admin' && <label>用户名<input required autoComplete="username" minLength={3} maxLength={40}
+          pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{2,39}" title="3–40 位字母、数字、短横线或下划线"
+          value={username} onChange={e => setUsername(e.target.value)} /></label>}
+        <label>{mode === 'register' ? '密码（至少 12 位）' : '密码'}<input required type="password"
+          minLength={mode === 'register' ? 12 : undefined} autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+          value={password} onChange={e => setPassword(e.target.value)} /></label>
+        {error && <p role="alert">{error}</p>}
+        <button className="primary">{busy ? '请稍候…' : mode === 'register' ? '创建账号' : '登录'}</button>
+        {mode === 'admin' && <button type="button" onClick={() => void submit(true)}>使用设备证书登录</button>}
+      </fieldset>
+    </form>
+    {hosted && <nav aria-label="登录方式">
+      {(['member', 'register', 'admin'] as const).filter(item => item !== mode).map(item =>
+        <button key={item} disabled={busy} className="link" onClick={() => change(item)}>
+          {{ member: '个人登录', register: '注册账号', admin: '管理员登录' }[item]}</button>)}
+    </nav>}
+  </main>;
 }
 
-const EMPTY_STATS: DashboardStats = {
-  aliasCount: 0,
-  activeAliasCount: 0,
-  emailCount: 0,
-  unreadCount: 0,
-  attachmentCount: 0,
-  attachmentBytes: 0,
-};
-
-type Toast = { type: 'success' | 'error'; message: string } | null;
-
 export default function App() {
-  const [chatGPTLogin, setChatGPTLogin] = useState(false);
-  const [edition, setEdition] = useState<'hosted' | 'local'>();
-  const [checkingSession, setCheckingSession] = useState(true);
-  const [connectingProvider, setConnectingProvider] = useState<OAuthProvider | null>(null);
-  const [authenticated, setAuthenticated] = useState(false);
-  const [loginBusy, setLoginBusy] = useState(false);
-  const [loginError, setLoginError] = useState('');
-  const [activeView, setActiveView] = useState<ViewName>('inbox');
-  const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
-  const [aliases, setAliases] = useState<MailAlias[]>([]);
-  const [emails, setEmails] = useState<EmailSummary[]>([]);
-  const [files, setFiles] = useState<AttachmentItem[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshResults, setRefreshResults] = useState<MailRefreshResult[]>([]);
-  const [connectOpen, setConnectOpen] = useState(false);
-  const [connectionResult, setConnectionResult] = useState<MailboxConnectionResult | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [toast, setToast] = useState<Toast>(null);
-
-  const showError = useCallback((error: unknown) => {
-    const message = error instanceof Error ? error.message : '操作失败，请稍后重试。';
-    setLoginError(message);
-    if (error instanceof ApiRequestError && error.status === 401) {
-      setSelectedId(null);
-      setAuthenticated(false);
-    }
-    setToast({ type: 'error', message });
-  }, []);
-
-  const startChatGPT = async (intent: 'login' | 'link') => {
-    try {
-      window.location.assign((await mailboxApi.startChatGPT(intent)).url);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '无法打开 ChatGPT 授权页。';
-      setLoginError(message);
-      setToast({ type: 'error', message });
-    }
-  };
-
-  const loadData = useCallback(async () => {
-    const [nextBootstrap, aliasPayload, emailPayload, filePayload] = await Promise.all([
-      mailboxApi.bootstrap(),
-      mailboxApi.aliases(),
-      mailboxApi.emails(),
-      mailboxApi.files(),
-    ]);
-    setBootstrap(nextBootstrap);
-    setAliases(aliasPayload.aliases);
-    setEmails(emailPayload.emails);
-    setFiles(filePayload.files);
-  }, []);
-
-  const syncConnection = useCallback(async (provider: OAuthProvider, accountId: string) => {
-    setRefreshing(true);
-    try {
-      const { result } = await mailboxApi.refreshMailAccount(accountId);
-      setRefreshResults((current) => [...current.filter(({ id }) => id !== accountId), result]);
-      if (result.error) {
-        setConnectionResult({ provider, accountId, status: 'sync_failed', message: result.error,
-          requiresReauthorization: result.requiresReauthorization });
-      } else {
-        const summary = result.imported > 0 ? `已同步 ${result.imported} 封邮件。` : '邮箱可用，目前暂无新邮件。';
-        setConnectionResult({ provider, status: 'connected',
-          message: result.hasMore ? `${summary}还有邮件待同步，可继续刷新。` : summary });
-      }
-    } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 401) {
-        showError(error);
-        return;
-      }
-      setConnectionResult({ provider, accountId, status: 'sync_failed',
-        message: error instanceof Error ? error.message : '暂时无法同步，请重试。' });
-    } finally {
-      setRefreshing(false);
-    }
-    await loadData().catch(showError);
-  }, [loadData, showError]);
-
-  useEffect(() => {
-    let active = true;
-    void mailboxApi
-      .session()
-      .then(async (session) => {
-        if (!active) return;
-        setEdition(session.edition);
-        setChatGPTLogin(Boolean(session.chatGPTLogin));
-        const chatCallback = new URLSearchParams(window.location.hash.slice(1));
-        if (session.edition === 'local' && chatCallback.get('chatgpt') === 'return') {
-          window.history.replaceState(null, '', window.location.pathname);
-          try {
-            session = await mailboxApi.finishChatGPT(chatCallback);
-            setChatGPTLogin(true);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'ChatGPT 登录失败。';
-            setLoginError(message);
-            setToast({ type: 'error', message });
-          }
-        }
-        const unlock = new URLSearchParams(window.location.hash.slice(1)).get('localUnlock');
-        if (session.edition === 'local' && unlock) {
-          window.history.replaceState(null, '', window.location.pathname);
-          session = await mailboxApi.unlockLocal(unlock);
-        }
-        setAuthenticated(session.authenticated);
-        const callback = new URLSearchParams(window.location.hash.slice(1));
-        const provider = callback.get('mailOAuth');
-        if (provider === 'gmail' || provider === 'outlook') {
-          window.history.replaceState(null, '', window.location.pathname + window.location.search);
-          setActiveView('aliases');
-          const accountId = takeReconnectTarget(provider);
-          if (session.authenticated) {
-            try {
-              const { accountId: syncedId } = await mailboxApi.finishMailOAuth(provider, {
-                state: callback.get('state'), code: callback.get('code'), error: callback.get('error'),
-              });
-              setConnectingProvider(provider);
-              await syncConnection(provider, syncedId);
-              return;
-            } catch (error) {
-              if (error instanceof ApiRequestError && error.status === 401) {
-                showError(error);
-                return;
-              }
-              const cancelled = error instanceof ApiRequestError && error.code === 'oauth_authorization_cancelled';
-              setConnectionResult(cancelled ? { provider, accountId, status: 'cancelled' } : {
-                provider, accountId, status: 'failed',
-                message: error instanceof Error ? error.message : '请重新打开授权页。',
-              });
-            }
-          } else {
-            setLoginError('邮箱管理会话已过期，请重新登录后开始授权。');
-          }
-        }
-        if (session.authenticated) await loadData();
-      })
-      .catch((error) => { if (active) showError(error); })
-      .finally(() => { if (active) setCheckingSession(false); });
-    return () => { active = false; };
-  }, [loadData, showError, syncConnection]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), toast.type === 'success' ? 2600 : 5200);
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
-
-  const login = async (password?: string, member?: { username: string; register: boolean }) => {
-    setLoginBusy(true);
-    setLoginError('');
-    try {
-      const session = password === undefined
-        ? await mailboxApi.loginWithCertificate()
-        : member ? await mailboxApi.memberLogin(member.username, password, member.register) : await mailboxApi.login(password);
-      setAuthenticated(session.authenticated);
-      if (session.authenticated) {
-        try {
-          await loadData();
-        } catch (error) {
-          showError(error);
-        }
-      }
-    } catch (error) {
-      setLoginError(error instanceof Error ? error.message : '登录失败。');
-    } finally {
-      setLoginBusy(false);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await mailboxApi.logout();
-    } catch (error) {
-      showError(error);
-      return;
-    }
-    setAuthenticated(false);
-    setBootstrap(null);
-    setAliases([]);
-    setEmails([]);
-    setRefreshResults([]);
-    setConnectionResult(null);
-    setConnectOpen(false);
-    setFiles([]);
-    setLoginError('');
-    setToast(null);
-    setSelectedId(null);
-  };
-
-  const refresh = async () => {
-    setRefreshing(true);
-    try {
-      const accounts = bootstrap?.mailAccounts ?? [];
-      const results = await Promise.all(accounts.map(async (account): Promise<MailRefreshResult> => {
-        try {
-          return (await mailboxApi.refreshMailAccount(account.id)).result;
-        } catch (error) {
-          return {
-            id: account.id, imported: 0, oversized: 0, hasMore: false, lastSyncAt: account.lastSyncAt,
-            error: error instanceof Error ? error.message : '邮箱同步失败。',
-          };
-        }
-      }));
-      setRefreshResults(results);
-      await loadData();
-
-      const imported = results.reduce((total, result) => total + result.imported, 0);
-      const errors = results.filter((result) => result.error).length;
-      const more = results.some((result) => result.hasMore);
-      const receipt = imported > 0 ? `同步了 ${imported} 封邮件` : '收件箱已刷新';
-      setToast({
-        type: errors ? 'error' : 'success',
-        message: errors ? `${receipt}，${errors} 个邮箱同步失败。查看该账号的状态。`
-          : more ? `${receipt}。还有邮件待同步，可再刷新一次。` : `${receipt}。`,
-      });
-    } catch (error) {
-      showError(error);
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const saveMailAccount = async (input: { email: string; authorizationCode: string }) => {
-    try {
-      const { account } = await mailboxApi.saveMailAccount(input);
-      setBootstrap((current) => current ? {
-        ...current,
-        mailAccounts: [...(current.mailAccounts ?? []).filter(({ id }) => id !== account.id), account]
-          .sort((a, b) => a.address.localeCompare(b.address)),
-      } : current);
-      setRefreshResults((current) => current.filter(({ id }) => id !== account.id));
-      setConnectionResult({ provider: account.provider, status: 'saved' });
-    } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 401) showError(error);
-      throw error;
-    }
-  };
-
-  const authorizeMailbox = async (provider: OAuthProvider, accountId?: string) => {
-    try {
-      const { url } = await mailboxApi.startMailOAuth(provider, accountId);
-      try {
-        if (accountId) window.sessionStorage.setItem(reconnectStorageKey, `${provider}:${accountId}`);
-        else window.sessionStorage.removeItem(reconnectStorageKey);
-      } catch {
-        // The authorization itself still works when browser storage is unavailable.
-      }
-      window.location.assign(url);
-    } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 401) showError(error);
-      throw error;
-    }
-  };
-
-  const createAlias = async (input: { localPart?: string; label: string; note?: string; generate: boolean }) => {
-    setBusy(true);
-    try {
-      const { alias } = await mailboxApi.createAlias(input);
-      setCreateOpen(false);
-      await loadData();
-      setToast({ type: 'success', message: `${alias.address} 已创建。` });
-    } catch (error) {
-      showError(error);
-      throw error;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleAlias = async (alias: MailAlias) => {
-    setBusy(true);
-    try {
-      const status = alias.status === 'active' ? 'disabled' : 'active';
-      const { alias: updated } = await mailboxApi.updateAlias(alias.id, { status });
-      setAliases((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      await loadData();
-      setToast({ type: 'success', message: `${updated.address} 已${status === 'active' ? '启用' : '停用'}。` });
-    } catch (error) {
-      showError(error);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const navigate = (view: ViewName) => {
-    if (view !== 'inbox') setSelectedId(null);
-    setActiveView(view);
-  };
-
-  const openEmail = (id: string) => {
-    setActiveView('inbox');
-    setSelectedId(id);
-  };
-
-  if (checkingSession) {
-    return (
-      <main className="boot-screen">
-        <div className="brand-loader" role="status"><span className="spinner" /><strong>
-          {connectingProvider ? `正在同步 ${connectingProvider === 'gmail' ? 'Gmail' : 'Outlook'} 邮件…` : 'Agentic Mailbox'}
-        </strong></div>
-      </main>
-    );
+  const [session, setSession] = useState<SessionPayload>();
+  const [error, setError] = useState('');
+  async function refresh() {
+    setSession(await api<SessionPayload>('/api/session')); setError('');
   }
-
-  if (!authenticated) {
-    return <LoginView onChatGPTLogin={chatGPTLogin ? () => void startChatGPT('login') : undefined} edition={edition} error={loginError} busy={loginBusy} onLogin={login} onCertificateLogin={() => login()} />;
+  useEffect(() => { void refresh().catch(e => setError(e.message)); }, []);
+  async function logout() {
+    try { await api('/api/session', { method: 'DELETE' }); await refresh(); }
+    catch (e) { setError((e as Error).message); }
   }
-
-  const stats = bootstrap?.stats ?? EMPTY_STATS;
-  const appName = bootstrap?.appName ?? 'Agentic Mailbox';
-  const primaryDomain = bootstrap?.primaryDomain ?? 'emomo.net';
-  const accounts = bootstrap?.mailAccounts ?? [];
-  const mailSources = [...aliases, ...accounts];
-
-  const openCreate = () => {
-    setActiveView('aliases');
-    setCreateOpen(true);
-  };
-
-  return (
-    <>
-      <Suspense fallback={<main className="boot-screen"><div className="brand-loader"><span className="spinner" />正在加载邮箱</div></main>}>
-        <InboxWorkbench
-          userLabel={bootstrap?.local ? '本机用户' : bootstrap?.externalOnly ? bootstrap.adminEmail : '管理员'}
-          aiEnabled={edition !== 'local' || Boolean(bootstrap?.chatGPT?.planEnabled)}
-          appName={appName}
-          primaryDomain={primaryDomain}
-          activeView={activeView}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          aliases={aliases}
-          accounts={accounts}
-          revision={emails}
-          unread={stats.unreadCount}
-          refreshing={refreshing}
-          onNavigate={navigate}
-          onConnectMailbox={() => { navigate('aliases'); setConnectOpen(true); }}
-          onLogout={() => void logout()}
-          onReload={loadData}
-          onRefresh={refresh}
-          onError={showError}
-          onNotice={(message) => setToast({ type: 'success', message })}
-        >
-          {activeView === 'overview' ? (
-            <OverviewView
-              stats={stats}
-              emails={emails}
-              aliases={aliases}
-              onNavigate={navigate}
-              onCreateAlias={bootstrap?.externalOnly ? undefined : openCreate}
-              onOpenEmail={openEmail}
-            />
-          ) : null}
-          {activeView === 'aliases' ? (
-            <div className="page">
-              {bootstrap?.local && <section className="connected-mailboxes">
-                <h2>Codex 邮箱插件</h2>
-                <p>授权后，这台 Mac 上的插件可用当前本机用户的权限管理邮箱、草稿和发信。</p>
-                <button className="button button--secondary" onClick={async () => {
-                  try {
-                    const { profile } = await mailboxApi.connectCodex();
-                    setToast({ type: 'success', message: 'Codex 已连接，配置名为 ' + profile });
-                  } catch (error) { showError(error); }
-                }}>授权本机 Codex 插件</button>
-              </section>}
-              {bootstrap?.chatGPT && <section className="connected-mailboxes">
-                <h2>ChatGPT</h2>
-                <p>{bootstrap.chatGPT.linked ? (bootstrap.chatGPT.email || '已绑定 ChatGPT 账号') : '绑定后可用 ChatGPT 登录这台 Mac 上的邮箱。'}</p>
-                <p>{bootstrap.chatGPT.planEnabled ? '套餐起草已开启。' : '可在 OpenAI 授权页选择启用套餐起草。'} 起草时，指令、草稿和相关邮件文本会发送给 OpenAI。</p>
-                <button className="button button--primary" onClick={() => void startChatGPT('link')}>Continue with ChatGPT</button>
-                {bootstrap.chatGPT.linked && <button className="button button--secondary" onClick={async () => {
-                  try {
-                    const { revoked } = await mailboxApi.disconnectChatGPT();
-                    setChatGPTLogin(false);
-                    await loadData();
-                    setToast({ type: 'success', message: revoked ? '已断开 ChatGPT。' : '已清除本机授权。可在 ChatGPT 设置中撤销远端授权。' });
-                  } catch (error) { showError(error); }
-                }}>断开 ChatGPT</button>}
-              </section>}
-              <ConnectedMailboxes local={bootstrap?.local} accounts={accounts} results={refreshResults} refreshing={refreshing}
-                oauthProviders={bootstrap?.oauthProviders ?? []} connectOpen={connectOpen} onConnectOpen={setConnectOpen}
-                connectionResult={connectionResult} onDismissResult={() => setConnectionResult(null)}
-                onRefresh={refresh} onSyncConnection={syncConnection} onOpenInbox={() => { setConnectionResult(null); navigate('inbox'); }}
-                onAuthorize={authorizeMailbox} onSave={saveMailAccount} />
-              {!bootstrap?.externalOnly && <AliasesView
-                aliases={aliases}
-                primaryDomain={primaryDomain}
-                createOpen={createOpen}
-                busy={busy}
-                onOpenCreate={() => setCreateOpen(true)}
-                onCloseCreate={() => setCreateOpen(false)}
-                onCreate={createAlias}
-                onToggle={toggleAlias}
-              />}
-            </div>
-          ) : null}
-          {activeView === 'files' ? <FilesView files={files} sources={mailSources} /> : null}
-        </InboxWorkbench>
-      </Suspense>
-
-      {toast ? (
-        <div className={`toast toast--${toast.type}`} role="status">
-          {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          <span>{toast.message}</span>
-          <button className="icon-button" type="button" onClick={() => setToast(null)} title="关闭" aria-label="关闭">
-            <X size={15} />
-          </button>
-        </div>
-      ) : null}
-    </>
-  );
+  return <>
+    <header><div className="bar"><span className="brand"><span className="mark" aria-hidden="true">↗</span>Agentic Mailbox</span>
+      {session?.authenticated && <button className="link" onClick={() => void logout()}>退出登录</button>}</div></header>
+    {error && <div className="notice" role="alert">{error} <button onClick={() => void refresh().catch(e => setError(e.message))}>重新连接</button></div>}
+    {session?.authenticated ? <Forwarding admin={Boolean(session.admin)} /> :
+      session ? <Login hosted={session.edition === 'hosted'} onLogin={refresh} /> :
+        !error && <main><p role="status">正在连接转发服务…</p></main>}
+  </>;
 }
