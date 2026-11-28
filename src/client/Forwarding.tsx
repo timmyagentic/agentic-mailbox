@@ -91,7 +91,7 @@ export default function Forwarding({ admin }: { admin: boolean }) {
           </form>}
           <details>
             <summary>{settings.senderName ? `代发身份 · ${settings.senderName}` : '设置代发身份'}</summary>
-            <p>填写名称后，服务会用 <strong>{settings.relay}</strong> 给目标邮箱重新寄信。留空并保存可恢复原样转发。</p>
+            <p>填写名称后，服务会用 <strong>{settings.senderAddress}</strong> 给目标邮箱重新寄信。留空并保存可恢复原样转发。</p>
             <form onSubmit={e => {
               e.preventDefault();
               const name = String(new FormData(e.currentTarget).get('name') ?? '').trim();

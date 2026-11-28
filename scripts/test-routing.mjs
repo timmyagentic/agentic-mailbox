@@ -55,7 +55,12 @@ try {
   assert.equal(a.destination, null);
   assert.notEqual(a.relay, (await settings(bob)).relay);
   assert.equal(a.relay, (await settings(alice.replace('agentic_mailbox_session', 'mailbox_vault_session'))).relay);
-  assert.equal((await settings(admin)).destination, 'existing@example.net');
+  const operator = await settings(admin);
+  assert.equal(operator.destination, 'existing@example.net');
+  assert.equal(operator.senderAddress, operator.relay);
+  await db.prepare('UPDATE forwarding_settings SET sender_address = ? WHERE owner = ?').bind('hello@sender.example.net', 'admin').run();
+  assert.equal((await settings(admin)).senderAddress, 'hello@sender.example.net');
+  assert.equal((await settings(alice)).senderAddress, a.relay);
   assert.equal((await api('/api/forwarding', alice.replace('member:alice:', 'member:bob:'))).status, 401);
   assert.equal((await api('/api/forwarding')).status, 401);
   const target = 'new@example.net';
@@ -76,9 +81,11 @@ try {
   assert.equal((await api('/api/forwarding/confirm', bob, 'POST', { code })).status, 400);
   assert.equal((await api('/api/forwarding/confirm', alice, 'POST', { code })).status, 200);
   assert.equal((await settings(alice)).destination, target);
-  const senderChange = await api('/api/forwarding/sender', alice, 'PUT', { name: 'Relay Assistant', owner: 'admin' });
+  const senderChange = await api('/api/forwarding/sender', alice, 'PUT', { name: 'Relay Assistant', owner: 'admin', senderAddress: 'hello@sender.example.net' });
   assert.equal(senderChange.status, 200, await senderChange.clone().text());
-  assert.equal((await senderChange.json()).senderName, 'Relay Assistant');
+  const updatedSender = await senderChange.json();
+  assert.equal(updatedSender.senderName, 'Relay Assistant');
+  assert.equal(updatedSender.senderAddress, a.relay);
   assert.equal((await settings(bob)).senderName, null);
   assert.equal((await settings(admin)).senderName, null);
   const envelope = new URL('/cdn-cgi/handler/email', origin);

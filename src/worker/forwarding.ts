@@ -8,7 +8,7 @@ const codeLifetime = 15 * 60_000;
 const resendDelay = 60_000;
 
 type SettingsRow = {
-  relay: string; sender_name: string | null; destination: string | null; pending: string | null;
+  relay: string; sender_name: string | null; sender_address: string | null; destination: string | null; pending: string | null;
   pending_id: string | null; code_hash: string | null; code_sent_at: number | null;
 };
 
@@ -37,7 +37,8 @@ async function settingsRow(env: Env, owner: string): Promise<SettingsRow> {
 
 function publicSettings(row: SettingsRow): ForwardingSettings {
   const validCode = row.code_hash && (row.code_sent_at ?? 0) + codeLifetime > Date.now();
-  return { relay: row.relay, senderName: row.sender_name, destination: row.destination, pending: row.pending,
+  return { relay: row.relay, senderName: row.sender_name, senderAddress: row.sender_address ?? row.relay,
+    destination: row.destination, pending: row.pending,
     step: row.pending ? (validCode ? 'code' : 'provider') : null };
 }
 
@@ -65,6 +66,7 @@ export async function requestDestination(env: Env, owner: string, value: unknown
   const target = destinationAddress(env, value);
   if (!target) throw new HttpError(400, 'invalid_destination', '请输入有效的外部收件地址。目标不能是本站的中转域名。');
   const row = await settingsRow(env, owner);
+  if (row.sender_address?.toLowerCase() === target) throw new HttpError(400, 'sender_is_destination', '目标不能是当前代发地址。');
   if (row.destination === target) throw new HttpError(409, 'already_active', '这个地址已在接收转发邮件。');
   if (row.pending !== target) {
     await env.DB.prepare(`UPDATE forwarding_settings SET pending = ?, pending_id = ?, code_hash = NULL,
@@ -105,7 +107,8 @@ export async function confirmDestination(env: Env, owner: string, value: unknown
   if (/^[0-9A-F]{12}$/.test(code)) {
     const update = await env.DB.prepare(`UPDATE forwarding_settings SET destination = pending, pending = NULL,
       pending_id = NULL, code_hash = NULL, code_sent_at = NULL
-      WHERE owner = ? AND pending IS NOT NULL AND code_hash = ? AND code_sent_at > ?`)
+      WHERE owner = ? AND pending IS NOT NULL AND code_hash = ? AND code_sent_at > ?
+      AND (sender_address IS NULL OR lower(sender_address) <> lower(pending))`)
       .bind(owner, await codeHash(code), Date.now() - codeLifetime).run();
     if (update.meta.changes) return getSettings(env, owner);
   }
