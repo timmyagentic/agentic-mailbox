@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/worker';
 import { createAlias } from '../src/worker/db';
-import { confirmDestination, getSettings, requestDestination, verifyDestination, cancelPending } from '../src/worker/forwarding';
+import { confirmDestination, getSettings, requestDestination, verifyDestination, cancelPending, setRelaySenderName } from '../src/worker/forwarding';
 import type { Env, EmailWorkerMessage } from '../src/worker/types';
 
 function testDatabase(db: DatabaseSync) {
@@ -90,6 +90,79 @@ describe('forwarding delivery', () => {
     await worker.email(mail.event, env);
     expect(mail.forwarded).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain('private transport detail');
+  });
+});
+
+describe('relay sender identity', () => {
+  const display = '测试邮件助手';
+
+  function incoming(to: string, source: string, headers = new Headers()) {
+    const event = message(to, headers);
+    Object.defineProperties(event.event, {
+      raw: { value: new Blob([source]).stream() }, from: { value: 'bounce@example.net' },
+    });
+    return event;
+  }
+
+  it('creates new messages from the same identity for aliases and the relay, carrying the original body and files', async () => {
+    const { relay } = await setRelaySenderName(env, 'admin', display);
+    const alias = (await createAlias(env, { localPart: 'orders' })).address;
+    send.mockResolvedValue({});
+    for (const to of [alias, relay]) {
+      const raw = ['From: Author <author@example.net>', 'To: Old name <' + to + '>', 'Cc: another@example.net',
+        'Bcc: hidden@example.org', 'Reply-To: Desk <reply@example.net>', 'Subject: =?UTF-8?B?5rWL6K+V?=',
+        'Message-ID: <original@example.net>', 'MIME-Version: 1.0', 'Content-Type: multipart/related; boundary=outer',
+        '', '--outer', 'Content-Type: multipart/alternative; boundary=inner', '', '--inner', 'Content-Type: text/plain',
+        '', 'Fixture body', '--inner', 'Content-Type: text/html', '', '<p>Fixture <img src="cid:logo"></p>', '--inner--',
+        '--outer', 'Content-Type: image/png; name=logo.png', 'Content-ID: <logo>', 'Content-Disposition: inline; filename=logo.png',
+        'Content-Transfer-Encoding: base64', '', 'AAEC/w==', '--outer--', ''].join('\r\n');
+      const mail = incoming(to, raw);
+      await worker.email(mail.event, env);
+      expect(mail.forwarded).not.toHaveBeenCalled();
+      expect(mail.rejected).not.toHaveBeenCalled();
+      const out = send.mock.lastCall![0];
+      expect(out).toMatchObject({ from: { name: display, email: relay }, to: 'old@example.org', subject: '测试',
+        replyTo: 'reply@example.net', headers: { 'X-Agentic-Mailbox-Original-To': to, 'X-Agentic-Mailbox-Relay': 'mail.example.org' } });
+      expect(out).not.toHaveProperty('cc'); expect(out).not.toHaveProperty('bcc');
+      expect(out.headers).not.toHaveProperty('Message-ID');
+      expect(out.html).toContain('cid:logo'); expect(out.text).toContain('Fixture body');
+      expect(out.attachments).toHaveLength(1);
+      expect(out.attachments[0]).toMatchObject({ filename: 'logo.png', type: 'image/png', disposition: 'inline', contentId: 'logo' });
+      expect([...new Uint8Array(out.attachments[0].content)]).toEqual([0, 1, 2, 255]);
+    }
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the verified target, propagates a send failure, and rejects mail already processed by this relay', async () => {
+    const { relay } = await setRelaySenderName(env, owner, display);
+    const raw = 'From: writer@example.org\r\nTo: other@example.net\r\nSubject: Subject\r\n\r\nBody';
+    const unconfigured = incoming(relay, raw);
+    await worker.email(unconfigured.event, env);
+    expect(unconfigured.rejected).toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    const enabled = await setRelaySenderName(env, 'admin', display);
+    const msg = incoming(enabled.relay, raw);
+    send.mockRejectedValueOnce(Error('provider detail'));
+    await expect(worker.email(msg.event, env)).rejects.toThrow('Email forwarding failed');
+    expect(msg.forwarded).not.toHaveBeenCalled();
+    const loop = incoming(enabled.relay, raw, new Headers({ 'X-Agentic-Mailbox-Relay': 'mail.example.org' }));
+    await worker.email(loop.event, env);
+    expect(loop.rejected).toHaveBeenCalledOnce(); expect(send).toHaveBeenCalledOnce();
+    send.mockResolvedValue({});
+    await worker.email(incoming(enabled.relay, raw).event, env);
+    expect(send.mock.lastCall![0].replyTo).toBe('writer@example.org');
+  });
+
+  it('isolates each sender setting and restores native forwarding when cleared', async () => {
+    const admin = await setRelaySenderName(env, 'admin', display);
+    expect((await getSettings(env, owner)).senderName).toBeNull();
+    for (const invalid of ['', '   ', 'Fake\r\nBcc: victim@example.org', 'x'.repeat(81)]) {
+      await expect(setRelaySenderName(env, 'admin', invalid)).rejects.toThrow();
+    }
+    expect((await setRelaySenderName(env, 'admin', null)).senderName).toBeNull();
+    const mail = message(admin.relay);
+    await worker.email(mail.event, env);
+    expect(mail.forwarded).toHaveBeenCalledOnce(); expect(send).not.toHaveBeenCalled();
   });
 });
 
