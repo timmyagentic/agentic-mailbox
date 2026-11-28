@@ -19,7 +19,7 @@ export type MailAlias = {
 export type SessionPayload = {
   authenticated: boolean;
   user: { email: string } | null;
-  edition?: 'hosted';
+  edition?: 'hosted' | 'imap';
   admin?: boolean;
 };
 

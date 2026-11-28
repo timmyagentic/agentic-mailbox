@@ -2,10 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { SessionPayload } from '../shared/types';
 import { api } from './api';
 import Forwarding from './Forwarding';
+import MailboxRelay from './MailboxRelay';
 
 type Mode = 'member' | 'admin' | 'register';
 
-function Login({ hosted, onLogin }: { hosted: boolean; onLogin: () => Promise<void> }) {
+function Login({ hosted, imap, onLogin }: { hosted: boolean; imap: boolean; onLogin: () => Promise<void> }) {
   const [mode, setMode] = useState<Mode>(hosted ? 'member' : 'admin');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -25,7 +26,7 @@ function Login({ hosted, onLogin }: { hosted: boolean; onLogin: () => Promise<vo
   function onSubmit(event: FormEvent) { event.preventDefault(); void submit(false); }
   return <main className="login">
     <h1>{mode === 'register' ? '创建转发账号' : mode === 'admin' ? '管理员登录' : '登录转发设置'}</h1>
-    <p>选择一个常用邮箱，以后在那里接收新邮件。</p>
+    <p>{imap ? '输入部署时设置的管理员密码，连接你的中转邮箱。' : '选择一个常用邮箱，以后在那里接收新邮件。'}</p>
     <form onSubmit={onSubmit}>
       <fieldset disabled={busy}>
         {mode !== 'admin' && <label>用户名<input required autoComplete="username" minLength={3} maxLength={40}
@@ -36,7 +37,7 @@ function Login({ hosted, onLogin }: { hosted: boolean; onLogin: () => Promise<vo
           value={password} onChange={e => setPassword(e.target.value)} /></label>
         {error && <p role="alert">{error}</p>}
         <button className="primary">{busy ? '请稍候…' : mode === 'register' ? '创建账号' : '登录'}</button>
-        {mode === 'admin' && <button type="button" onClick={() => void submit(true)}>使用设备证书登录</button>}
+        {mode === 'admin' && !imap && <button type="button" onClick={() => void submit(true)}>使用设备证书登录</button>}
       </fieldset>
     </form>
     {hosted && <nav aria-label="登录方式">
@@ -62,8 +63,8 @@ export default function App() {
     <header><div className="bar"><span className="brand"><span className="mark" aria-hidden="true">↗</span>OpenPostway</span>
       {session?.authenticated && <button className="link" onClick={() => void logout()}>退出登录</button>}</div></header>
     {error && <div className="notice" role="alert">{error} <button onClick={() => void refresh().catch(e => setError(e.message))}>重新连接</button></div>}
-    {session?.authenticated ? <Forwarding admin={Boolean(session.admin)} /> :
-      session ? <Login hosted={session.edition === 'hosted'} onLogin={refresh} /> :
+    {session?.authenticated ? (session.edition === 'imap' ? <MailboxRelay /> : <Forwarding admin={Boolean(session.admin)} />) :
+      session ? <Login hosted={session.edition === 'hosted'} imap={session.edition === 'imap'} onLogin={refresh} /> :
         !error && <main><p role="status">正在连接转发服务…</p></main>}
   </>;
 }

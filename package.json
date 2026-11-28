@@ -12,14 +12,19 @@
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run test:routing",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run test:routing && npm run test:self-hosted",
     "cf:types": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config wrangler.self-hosted.jsonc",
     "deploy:self-hosted": "npm run build && wrangler deploy --config wrangler.self-hosted.jsonc",
-    "test:routing": "wrangler deploy --dry-run --outdir .wrangler/routing-test && node scripts/test-routing.mjs"
+    "test:routing": "wrangler deploy --config wrangler.domain.jsonc --dry-run --outdir .wrangler/routing-test && node scripts/test-routing.mjs",
+    "test:self-hosted": "wrangler deploy --config wrangler.jsonc --dry-run --outdir .wrangler/imap-test && node scripts/test-self-hosted.mjs",
+    "init:self-hosted": "node scripts/init-self-hosted.mjs",
+    "authorize:gmail": "node scripts/authorize-gmail.mjs"
   },
   "dependencies": {
+    "imapflow": "2.12.2",
+    "nodemailer": "10.6.1",
     "postal-mime": "2.7.5",
     "react": "19.2.7",
     "react-dom": "19.2.7"

@@ -1,53 +1,74 @@
 # OpenPostway
 
-OpenPostway forwards new mail to one mailbox you choose. Read, search and reply in your usual mail app. Each account gets a stable relay address, so changing the destination updates every source that forwards to that relay.
+OpenPostway collects new mail from a mailbox you own and re-sends it to the inbox you choose. Your relay appears in From, your destination is the only To recipient, and Reply-To points to the original reply address or author. Subject, text, HTML and attachments travel with the message. Read and reply in your usual mail app.
 
-[Open forwarding settings](https://mailbox.timmyagentic.si/) · [Product site](https://openpostway.timmyagentic.si/)
-
-## Set up forwarding
-
-1. Sign in or register. The administrator can also sign in with the existing password or registered device certificate.
-2. Enter your destination address. For a new Cloudflare destination, open the verification message in that mailbox and click the link. Back in settings, request a confirmation code. Enter the code delivered to your destination to activate it. An address already verified by Cloudflare goes directly to the code step.
-3. Copy your relay address. In each source mailbox's web settings, turn on automatic forwarding to that address. Complete any source-provider confirmation and save the forwarding rule. Keep the source mailbox's copy if you want one.
-4. Open your destination mailbox in Gmail or your preferred app. Send a test message from a different address to each source. Replies follow your mail app's sending identity.
-
-For QQ and NetEase 163, look for automatic forwarding or incoming mail rules in the web settings. Availability depends on the account. Gmail uses the forwarding section in its web settings. Outlook supports forwarding in its web mail settings. Some organizations block external forwarding. Set up only the source mailboxes and keep the final destination out of these rules. [Gmail instructions](https://support.google.com/mail/answer/10957) · [Outlook instructions](https://support.microsoft.com/en-us/outlook/mail/turn-automatic-forwarding-on-or-off-in-outlook)
-
-The domain administrator can create or disable managed aliases. These aliases share the administrator’s destination. Members have their own relay and destination. Replacing a destination keeps the current one active until the replacement is confirmed. By default Cloudflare forwards the original message. To receive a newly addressed message, open the sender identity setting and save a display name. The service sends from that name with only your verified destination in To. The sender defaults to your stable relay. An operator can assign a separate outbound address from an authorized sending domain in the account’s `forwarding_settings.sender_address`. Sources continue to use the same inbound relay. For the domain administrator, the relay and all managed aliases use the same identity. The new mail carries the original subject, text, HTML and attachments. Replies go to the original reply address when available. Clear the display name to resume original-message forwarding. Neither mode archives incoming bodies or attachments.
-
-## Upgrade from the inbox edition
-
-- Back up the existing database, attachment bucket and any local mailbox data you want to keep. Apply the new additive D1 migration before deploying the Worker. Keep the existing Worker name, D1 binding, member Durable Object class and namespace, domain, login secrets and certificate settings.
-- Existing active managed aliases continue using the operator's previous verified `FORWARD_TO` until the administrator confirms a replacement. New members start with an empty destination. Unknown and disabled aliases reject delivery.
-- Inspect existing explicit Cloudflare routing rules when migrating. To bring a direct forwarding rule into the settings, register its exact address as an active managed alias, then change that rule’s action to this Worker. Leave rules owned by other applications on their original targets.
-- Existing account identities remain usable. The settings show previously connected hosted sources so their owners can enable forwarding at each provider. Previously granted IMAP or OAuth access does not create a provider forwarding rule. Users of the former local edition should configure their sources directly at each provider.
-- Historical mail, attachments and drafts remain in their original storage. The new service does not replay them. Existing Mac installations and historical release archives can be retained for local history. The standalone inbox, Mac packaging and mailbox content APIs have been retired.
+**[中文自部署指南](docs/self-host.zh-CN.md)** · [Product site](https://openpostway.timmyagentic.si/) · [Hosted domain settings](https://mailbox.timmyagentic.si/)
 
 ## Self-host
 
-Use Node 24 and `npm ci`. Copy `wrangler.jsonc` to `wrangler.self-hosted.jsonc`. Set your Worker name, custom HTTPS route, D1 database, `PRIMARY_DOMAIN` and `ADMIN_EMAIL`. Use a unique rate-limit namespace and retain the `MEMBERS` Durable Object and `EMAIL` binding. Set `ROUTING_ACCOUNT_ID` to the Cloudflare account that owns Email Routing for your domain. Supply secrets with the same Wrangler configuration.
+The default installation runs a single administrator's IMAP/SMTP relay on Cloudflare Workers. It uses one Worker with static assets, one D1 database and a Cron Trigger every five minutes. The settings page uses a workers.dev URL. Your existing mailbox supplies both incoming and outgoing mail. Gmail, QQ and NetEase 163 have presets. Other providers, including mailboxes on your own domain, support custom servers.
+
+### 1. Deploy your instance
+
+You need Node.js 24, a Cloudflare account with Workers and D1, an IMAP/SMTP-enabled mailbox, and a **different** destination mailbox. Pick an unused Worker and database name in your account. The examples use `my-postway`. Run commands from the root of the clone.
 
 ```sh
-npx wrangler secret put ADMIN_PASSWORD --config wrangler.self-hosted.jsonc
-npx wrangler secret put SESSION_SECRET --config wrangler.self-hosted.jsonc
-npx wrangler secret put ROUTING_API_TOKEN --config wrangler.self-hosted.jsonc
+git clone https://github.com/timmyagentic/open-postway.git
+cd open-postway
+npm ci
+npx wrangler login
+npx wrangler d1 create my-postway --no-update-config
+```
+
+Copy the database ID printed by Wrangler. Replace `YOUR_D1_UUID` and use the same instance name throughout.
+
+```sh
+npm run init:self-hosted -- my-postway YOUR_D1_UUID
 npm run db:migrate:remote
 npm run deploy:self-hosted
 ```
 
-Scope `ROUTING_API_TOKEN` to **Email Routing Addresses Write** on that account. It registers and checks destination addresses. The `EMAIL` binding sends confirmation codes to Cloudflare-verified destinations from `forwarding@PRIMARY_DOMAIN`. Enable Email Routing and direct the domain's catch-all to this Worker. Use a managed alias for each additional custom address you want it to accept. Optional `ADMIN_CERT_FINGERPRINTS` keeps the existing mTLS login. [Cloudflare destination addresses](https://developers.cloudflare.com/email-service/configuration/destination-addresses/) · [Email routing rules](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/)
-
-For local development, copy `.dev.vars.example` to `.dev.vars` and set an administrator password and a random session secret. Run `npm run db:migrate:local` and `npm start`. Registration, settings and local data are available at the address Wrangler prints. `npm run check` uses isolated providers for enrollment, identity and delivery tests and performs a Worker dry-run. A local test does not deliver to a public mailbox.
-
-## Codex plugin
-
-The optional plugin manages forwarding settings and aliases. Install the repository marketplace and plugin, then sign in to your instance using the bundled CLI. [Forwarding skill](plugins/open-postway/skills/open-postway/SKILL.md)
+Complete the workers.dev subdomain prompt if this is your first Worker. Save the URL printed by the deploy. Before opening it, set the admin password and generate **two different secrets** once. The last two commands use OpenSSL on macOS/Linux. On another system, enter a random signing secret and a Base64-encoded 32-byte encryption key using the corresponding Wrangler prompts.
 
 ```sh
-codex plugin marketplace add timmyagentic/open-postway
-codex plugin add open-postway@open-postway-tools
+npx wrangler secret put ADMIN_PASSWORD --config wrangler.self-hosted.jsonc
+openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --config wrangler.self-hosted.jsonc
+openssl rand -base64 32 | npx wrangler secret put MAIL_ACCOUNT_KEY --config wrangler.self-hosted.jsonc
 ```
 
-When switching from the Agentic Mailbox plugin, install OpenPostway first. Its CLI reuses existing profiles and accepts both `OPEN_POSTWAY_SESSION_FILE` and the earlier `AGENTIC_MAILBOX_SESSION_FILE` override. After verifying your profiles, the old plugin can be removed with `codex plugin remove agentic-mailbox@agentic-mailbox-tools`.
+Keep the same Worker, local configuration, D1 database and secrets for upgrades. Run `npm ci`, `npm run db:migrate:remote`, then `npm run deploy:self-hosted` on the updated checkout. Replacing the encryption key requires reconnecting the mailbox.
 
-The hosted Worker and product site are maintained in [personal-hub](https://github.com/timmyagentic/personal-hub). Version tags publish source releases. See [diagnostics](docs/diagnostics.md) for troubleshooting and [LICENSE](LICENSE) for the license.
+### 2. Connect a mailbox
+
+Open your instance URL and sign in with the administrator password. Choose a preset and enter your relay address, a sender display name if desired, and your destination. The settings page authenticates to IMAP and sends a confirmation code through the configured SMTP account. Enter the 12-character code from the destination mailbox to activate forwarding.
+
+| Preset | IMAP / SMTP | How to authorize |
+| --- | --- | --- |
+| Gmail | `imap.gmail.com:993` / `smtp.gmail.com:465` | Use an [app password](https://support.google.com/accounts/answer/185833) when your account allows it and has two-step verification. For OAuth, follow the Google setup below. |
+| QQ Mail | `imap.qq.com:993` / `smtp.qq.com:465` | Enable IMAP/SMTP in mailbox security settings and generate a [client authorization code](https://help.mail.qq.com/detail/106/985). |
+| NetEase 163 | `imap.163.com:993` / `smtp.163.com:465` | In the [web mailbox](https://mail.163.com/), open Settings → POP3/SMTP/IMAP, enable IMAP/SMTP and generate a client authorization password. |
+| Other / own-domain mailbox | Your provider's hostnames and ports | Choose implicit TLS or required STARTTLS for each server. Common SMTP submission ports are 465 (TLS) and 587 (STARTTLS). The login defaults to the relay address. Separate incoming/outgoing usernames and an outgoing password are available under advanced settings. |
+
+**Google OAuth.** On a desktop with a browser, create a Google Cloud project, enable Gmail API, configure the OAuth consent screen and grant the Gmail IMAP/SMTP scope `https://mail.google.com/`. For an external app in testing, add the relay account as a test user. Create and download a **Desktop app** OAuth client JSON outside the repository. Run the following from the same clone used for deployment:
+
+```sh
+npm run authorize:gmail -- /absolute/path/to/desktop-client.json
+```
+
+Open the printed Google link **on that computer**, authorize the relay account, then select Gmail and Google OAuth in your instance. The helper stores the client credentials and refresh token directly as Worker secrets. The Google account and the relay address must match. External apps in Testing can receive refresh tokens that expire after seven days. Use a consent configuration appropriate to your account for continuous operation. [Google IMAP/SMTP OAuth](https://developers.google.com/workspace/gmail/imap/xoauth2-protocol) · [Google token expiration](https://developers.google.com/identity/protocols/oauth2#expiration)
+
+### 3. Receive the first relayed message
+
+1. After activation, send a **new** message from a third address to your **relay mailbox**. Give it a distinct subject and attach a small file. Send only to the relay.
+2. Click **立即检查新信** in your instance or wait for its five-minute schedule. Newly deployed Cloudflare schedules can take several minutes to propagate.
+3. Open the target mailbox, including spam if needed. Check the From address and display name, the single To recipient, the Reply-To address and the attachment. Send future source mail to the same relay, or configure automatic forwarding at other source providers.
+
+The initial connection records the current end of INBOX. Mail received after that point is eligible once the destination is confirmed. The relay preserves source read flags, processes up to ten new mails per check, and stores only encrypted credentials, configuration and processing state in D1. SMTP acceptance is visible in settings. If an acknowledgment is lost, check the destination before choosing to retry or skip. Mail above 12 MiB of source MIME or a changed IMAP UID validity appears in settings for an explicit decision. [Troubleshooting](docs/diagnostics.md)
+
+## Optional Cloudflare domain routing
+
+A domain with an existing IMAP/SMTP service can use the custom preset above. To have Cloudflare receive addresses on a domain and deliver incoming events directly to a Worker, use the separate [domain routing setup](docs/domain-routing.md). Existing domain deployments should keep their configuration, databases and bindings. The [Codex plugin](plugins/open-postway/skills/open-postway/SKILL.md) manages the domain-routing edition.
+
+## Development
+
+Copy `.dev.vars.example` to `.dev.vars`, set a local administrator password and the two random keys shown above, run `npm ci` and `npm run db:migrate:local`, then `npm start`. Use **立即检查新信** for local checks. `npm run check` exercises both editions, including a fresh D1 database and isolated IMAP/SMTP delivery over TLS in workerd. Node 24 and OpenSSL with `req -addext` are required to run the protocol fixture. [License](LICENSE)

@@ -1,38 +1,12 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "agentic-mailbox-local",
-  "main": "src/worker/entry.ts",
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "MEMBERS",
-        "class_name": "MemberMailbox"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "member-mailboxes-v1",
-      "new_sqlite_classes": [
-        "MemberMailbox"
-      ]
-    }
-  ],
-  "ratelimits": [
-    {
-      "name": "MEMBER_AUTH_LIMIT",
-      "namespace_id": "1009",
-      "simple": {
-        "limit": 12,
-        "period": 60
-      }
-    }
-  ],
+  "name": "open-postway",
+  "main": "src/worker/self-host.ts",
   "compatibility_date": "2026-07-19",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
   "assets": {
     "directory": "./dist",
@@ -40,28 +14,25 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": true
   },
-  "send_email": [
-    {
-      "name": "EMAIL"
-    }
-  ],
-  "vars": {
-    "APP_NAME": "OpenPostway",
-    "PRIMARY_DOMAIN": "example.invalid",
-    "ADMIN_EMAIL": "owner@example.invalid"
-  },
-  "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1,
-    "logs": {
-      "invocation_logs": false
-    }
-  },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "agentic-mailbox-local",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_name": "open-postway",
+      "migrations_dir": "migrations-imap"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "vars": {
+    "ADMIN_EMAIL": "owner"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "invocation_logs": false
+    }
+  }
 }

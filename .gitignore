@@ -12,3 +12,4 @@ test-results/
 outputs/
 
 wrangler.self-hosted.jsonc
+client_secret_*.apps.googleusercontent.com.json
