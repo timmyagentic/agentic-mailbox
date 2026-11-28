@@ -182,7 +182,7 @@ function smtp(socket, greet) {
       if (destination === source) addMail(raw);
       else if (destination === target) delivered.push(raw);
       else assert.fail('unexpected SMTP envelope');
-      if (loseAck) {
+      if (loseAck && destination === target) {
         loseAck = false;
         socket.destroy();
         return;
@@ -406,12 +406,15 @@ try {
   }
   const idleCount = () => [...imapClients.values()].filter((x) => x.idleTag).length;
   function segment(epoch, duration) {
-    return runtime
+    const request = runtime
       .dispatchFetch(base + '/test/segment', {
         method: 'POST',
         body: JSON.stringify({ epoch, until: Date.now() + duration }),
       })
       .then(async (r) => assert.equal(r.status, 200, await r.text()));
+    // Report the original assertion if cleanup closes a still-running fixture request.
+    void request.catch(() => {});
+    return request;
   }
   const subjects = async () =>
     (await Promise.all(delivered.map((raw) => PostalMime.parse(raw)))).map((mail) => mail.subject);
